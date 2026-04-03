@@ -5,6 +5,10 @@
 
 import { create } from 'zustand';
 
+export interface Source {
+  id: number; title: string; url: string; domain: string; snippet: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -14,6 +18,9 @@ export interface Message {
   duration?: number;
   thinking?: string;
   images?: string[];
+  sources?: Source[];
+  ragUsed?: boolean;
+  searchQuery?: string;
 }
 
 export interface Task {
@@ -97,7 +104,7 @@ interface NovaState {
   setSidebarOpen: (open: boolean) => void;
   
   addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => string;
-  updateLastMessage: (content: string, thinking?: string, duration?: number) => void;
+  updateLastMessage: (content: string, thinking?: string, duration?: number, extra?: { sources?: Source[]; ragUsed?: boolean; searchQuery?: string }) => void;
   clearMessages: () => void;
   
   setVoiceSupported: (supported: boolean) => void;
@@ -189,7 +196,7 @@ export const useNovaStore = create<NovaState>((set) => ({
     return id;
   },
 
-  updateLastMessage: (content, thinking, duration) =>
+  updateLastMessage: (content, thinking, duration, extra) =>
     set((state) => {
       const messages = [...state.messages];
       if (messages.length > 0) {
@@ -199,6 +206,7 @@ export const useNovaStore = create<NovaState>((set) => ({
           content,
           thinking: thinking || lastMessage.thinking,
           duration: duration || lastMessage.duration,
+          ...(extra || {}),
         };
       }
       return { messages };

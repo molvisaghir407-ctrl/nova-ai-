@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { webSearch, detectSearchIntent, buildRAGContext, type SearchResult } from '@/lib/nova/search';
 import { getTimeContext, getPersonalityPrompt } from '@/lib/nova/personality';
 import { logger } from '@/lib/nova/logger';
 import { memoryManager } from '@/lib/nova/memory';
@@ -106,6 +107,20 @@ export async function POST(req: NextRequest) {
 
     let history = await sessionStore.get(sessionKey);
 
+    // ── RAG: auto-search if message needs real-time data ─────────────────────
+    let ragSources: SearchResult[] = [];
+    let ragSearchQuery = '';
+    const enableRAG = body.enableRAG !== false; // default on
+    if (enableRAG && message && detectSearchIntent(message)) {
+      try {
+        ragSearchQuery = message.slice(0, 200);
+        logger.info('chat', 'RAG: auto-searching', { query: ragSearchQuery });
+        ragSources = await webSearch(ragSearchQuery, 6);
+      } catch (e) {
+        logger.warn('chat', 'RAG search failed (continuing)');
+      }
+    }
+
     // Build context
     let contextNote = '';
     if (includeContext) {
@@ -114,6 +129,9 @@ export async function POST(req: NextRequest) {
         const memCtx = await memoryManager.buildContextPrompt(6);
         if (memCtx) contextNote += memCtx;
       } catch { /* ignore */ }
+    }
+    if (ragSources.length > 0) {
+      contextNote += buildRAGContext(ragSearchQuery, ragSources);
     }
 
     // Build messages array
@@ -180,6 +198,10 @@ export async function POST(req: NextRequest) {
         };
 
         try {
+          // Emit RAG sources upfront so UI can show them immediately
+          if (ragSources.length > 0) {
+            send({ type: 'rag', sources: ragSources, searchQuery: ragSearchQuery });
+          }
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -232,7 +254,7 @@ export async function POST(req: NextRequest) {
           }
 
           const duration = Date.now() - startTime;
-          send({ type: 'done', sessionId: sessionKey, duration, messageCount: history.length });
+          send({ type: 'done', sessionId: sessionKey, duration, messageCount: history.length, ragSources, ragUsed: ragSources.length > 0, searchQuery: ragSearchQuery });
           controller.close();
         } catch (err) {
           logger.error('chat', 'Stream error', err);
