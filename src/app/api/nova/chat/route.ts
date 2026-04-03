@@ -1,9 +1,8 @@
 import { NextRequest } from 'next/server';
 import { webSearch, detectSearchIntent, buildRAGContext, type SearchResult } from '@/lib/nova/search';
-import { getTimeContext, getPersonalityPrompt } from '@/lib/nova/personality';
+import { getTimeContext } from '@/lib/nova/personality';
 import { logger } from '@/lib/nova/logger';
 import { memoryManager } from '@/lib/nova/memory';
-import { db } from '@/lib/db';
 import { sessionStore } from '@/lib/kv-sessions';
 
 // ── Kimi K2 via NVIDIA NIM Universal API ──────────────────────────────────────

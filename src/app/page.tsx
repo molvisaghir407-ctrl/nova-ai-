@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare, Mic, MicOff, Settings, Brain, ListTodo, Send, Sparkles,
@@ -12,7 +12,7 @@ import {
   ArrowRight, AlertCircle, Info, TrendingUp, Package, RefreshCw,
   SquareCode, Wand2, Infinity, LogOut, ChevronLeft, MoreHorizontal,
   Paperclip, Maximize2, Minimize2, SlidersHorizontal, PanelLeft,
-  ExternalLink, Newspaper, Radio
+  ExternalLink, Newspaper
 } from 'lucide-react';
 import { useNovaStore, Message } from '@/lib/nova/store';
 import { Button } from '@/components/ui/button';
@@ -32,59 +32,6 @@ function cn(...classes: (string | boolean | undefined | null)[]) {
   return classes.filter(Boolean).join(' ');
 }
 
-// ── Custom Cursor ──────────────────────────────────────────────────────────────
-function CustomCursor() {
-  const dotRef = useRef<HTMLDivElement>(null);
-  const ringRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!window.matchMedia('(pointer: fine)').matches) return;
-    let mouseX = 0, mouseY = 0, ringX = 0, ringY = 0, raf = 0;
-
-    const onMove = (e: MouseEvent) => {
-      mouseX = e.clientX; mouseY = e.clientY;
-      if (dotRef.current) dotRef.current.style.transform = `translate(${mouseX}px,${mouseY}px)`;
-    };
-
-    const animate = () => {
-      ringX += (mouseX - ringX) * 0.14;
-      ringY += (mouseY - ringY) * 0.14;
-      if (ringRef.current) ringRef.current.style.transform = `translate(${ringX}px,${ringY}px)`;
-      raf = requestAnimationFrame(animate);
-    };
-
-    const onOver = (e: MouseEvent) => {
-      const t = e.target as Element;
-      if (!ringRef.current) return;
-      if (t.closest('button,a,[role="button"],input[type="submit"]')) {
-        ringRef.current.setAttribute('data-hover', 'true');
-        ringRef.current.removeAttribute('data-text');
-      } else if (t.closest('input,textarea')) {
-        ringRef.current.setAttribute('data-text', 'true');
-        ringRef.current.removeAttribute('data-hover');
-      } else {
-        ringRef.current.removeAttribute('data-hover');
-        ringRef.current.removeAttribute('data-text');
-      }
-    };
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseover', onOver);
-    raf = requestAnimationFrame(animate);
-    return () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseover', onOver);
-      cancelAnimationFrame(raf);
-    };
-  }, []);
-
-  return (
-    <>
-      <div ref={dotRef} className="cursor-dot" />
-      <div ref={ringRef} className="cursor-ring" />
-    </>
-  );
-}
 
 // ── Thinking Block ─────────────────────────────────────────────────────────────
 function ThinkingBlock({ content, isStreaming, duration }: { content: string; isStreaming?: boolean; duration?: number }) {
@@ -714,6 +661,7 @@ export default function NovaApp() {
       let ragSources: Source[] = [];
       let ragUsed = false;
       let ragQuery = '';
+      let finalDuration: number | undefined;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -725,37 +673,48 @@ export default function NovaApp() {
           if (!line.trim().startsWith('data:')) continue;
           const jsonStr = line.slice(line.indexOf(':') + 1).trim();
           if (jsonStr === '[DONE]') continue;
-          try {
-            const evt = JSON.parse(jsonStr);
-            if (evt.type === 'rag') {
-              // RAG event — show searching indicator
-              ragSources = evt.sources || [];
-              ragQuery = evt.searchQuery || '';
-              ragUsed = true;
-              setIsSearching(true);
-              setSearchingQuery(ragQuery);
-              // Update message with search state
-              updateLastMessage(contentAcc, thinkingAcc || undefined);
-            }
-            if (evt.type === 'thinking') { thinkingAcc += evt.content; }
-            if (evt.type === 'content') {
-              contentAcc += evt.content;
-              setIsSearching(false); // Hide searching once content starts
-            }
-            if (evt.type === 'usage') setTokenCount({ prompt: evt.usage.prompt_tokens, completion: evt.usage.completion_tokens });
-            if (evt.type === 'done') {
-              ragSources = evt.ragSources || ragSources;
-              ragUsed = evt.ragUsed || ragUsed;
-              // Final update with sources
-              (updateLastMessage as any)(contentAcc, thinkingAcc || undefined, evt.duration, {
-                sources: ragSources, ragUsed, searchQuery: ragQuery,
-              });
-            }
-            if (evt.type !== 'done' && evt.type !== 'rag') {
-              updateLastMessage(contentAcc, thinkingAcc || undefined);
-            }
-            if (evt.type === 'error') throw new Error(evt.message);
-          } catch { }
+
+          let evt: any;
+          try { evt = JSON.parse(jsonStr); } catch { continue; } // skip malformed lines only
+
+          if (evt.type === 'rag') {
+            ragSources = evt.sources || [];
+            ragQuery = evt.searchQuery || '';
+            ragUsed = true;
+            setIsSearching(true);
+            setSearchingQuery(ragQuery);
+            continue; // no message update needed yet
+          }
+          if (evt.type === 'thinking') {
+            thinkingAcc += evt.content || '';
+            updateLastMessage(contentAcc, thinkingAcc);
+            continue;
+          }
+          if (evt.type === 'content') {
+            contentAcc += evt.content || '';
+            setIsSearching(false);
+            updateLastMessage(contentAcc, thinkingAcc || undefined);
+            continue;
+          }
+          if (evt.type === 'usage') {
+            setTokenCount({ prompt: evt.usage?.prompt_tokens ?? 0, completion: evt.usage?.completion_tokens ?? 0 });
+            continue;
+          }
+          if (evt.type === 'done') {
+            ragSources = evt.ragSources || ragSources;
+            ragUsed = evt.ragUsed ?? ragUsed;
+            finalDuration = evt.duration;
+            // Final message update with all metadata
+            updateLastMessage(contentAcc, thinkingAcc || undefined, finalDuration, {
+              sources: ragSources.length > 0 ? (ragSources as any) : undefined,
+              ragUsed,
+              searchQuery: ragQuery || undefined,
+            });
+            continue;
+          }
+          if (evt.type === 'error') {
+            throw new Error(evt.message || 'Stream error from server');
+          }
         }
       }
     } catch (err) {
@@ -788,8 +747,6 @@ export default function NovaApp() {
 
   return (
     <div className="flex h-screen bg-zinc-950 text-white overflow-hidden">
-      <CustomCursor />
-
       {/* Sidebar */}
       <AnimatePresence>
         {sidebarOpen && (

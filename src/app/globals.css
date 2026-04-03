@@ -137,62 +137,6 @@
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 .animate-blink { animation: blink 1s step-end infinite; }
 
-/* ── Custom Cursor ────────────────────────────────────────────────────────────── */
-@media (pointer: fine) {
-  *, *::before, *::after { cursor: none !important; }
-}
-
-.cursor-dot {
-  position: fixed;
-  top: -4px;
-  left: -4px;
-  width: 8px;
-  height: 8px;
-  background: rgba(255,255,255,0.9);
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 99999;
-  will-change: transform;
-  mix-blend-mode: difference;
-}
-
-.cursor-ring {
-  position: fixed;
-  top: -20px;
-  left: -20px;
-  width: 40px;
-  height: 40px;
-  border: 1.5px solid rgba(167,139,250,0.5);
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 99998;
-  will-change: transform;
-  transition: width 0.25s cubic-bezier(0.34,1.56,0.64,1),
-              height 0.25s cubic-bezier(0.34,1.56,0.64,1),
-              top 0.25s cubic-bezier(0.34,1.56,0.64,1),
-              left 0.25s cubic-bezier(0.34,1.56,0.64,1),
-              border-color 0.2s, background 0.2s, opacity 0.2s;
-}
-
-.cursor-ring[data-hover="true"] {
-  top: -28px;
-  left: -28px;
-  width: 56px;
-  height: 56px;
-  border-color: rgba(167,139,250,0.85);
-  background: rgba(167,139,250,0.07);
-}
-
-.cursor-ring[data-text="true"] {
-  top: -16px;
-  left: -4px;
-  width: 3px;
-  height: 32px;
-  border-radius: 2px;
-  background: rgba(167,139,250,0.8);
-  border-color: transparent;
-}
-
 /* ── Streaming Cursor (Claude-style) ─────────────────────────────────────────── */
 @keyframes cursor-blink {
   0%, 100% { opacity: 1; }
