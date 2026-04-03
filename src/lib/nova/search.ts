@@ -1,14 +1,7 @@
 /**
- * Nova Search Utility — used by search route AND chat RAG pipeline
+ * Nova Search Utility — RAG pipeline + search panel
+ * ZAI is loaded lazily so import failures don't kill the chat route
  */
-import ZAI from 'z-ai-web-dev-sdk';
-
-let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null;
-
-async function getZAI() {
-  if (!zaiInstance) zaiInstance = await ZAI.create();
-  return zaiInstance;
-}
 
 export interface SearchResult {
   id: number;
@@ -19,20 +12,40 @@ export interface SearchResult {
   date: string;
 }
 
-export async function webSearch(query: string, num = 8): Promise<SearchResult[]> {
-  const zai = await getZAI();
-  const results = await zai.functions.invoke('web_search', { query, num: Math.min(num, 20) });
-  return (results || []).map((item: any, i: number) => ({
-    id: i + 1,
-    title: item.name || item.title || '',
-    url: item.url || '',
-    snippet: item.snippet || '',
-    domain: item.host_name || item.domain || new URL(item.url || 'https://unknown').hostname,
-    date: item.date || '',
-  }));
+let _zai: any = null;
+async function getZAI(): Promise<any | null> {
+  if (_zai) return _zai;
+  try {
+    const ZAI = (await import('z-ai-web-dev-sdk')).default;
+    _zai = await ZAI.create();
+    return _zai;
+  } catch {
+    return null;
+  }
 }
 
-// Keywords that trigger RAG auto-search
+export async function webSearch(query: string, num = 8): Promise<SearchResult[]> {
+  try {
+    const zai = await getZAI();
+    if (!zai) return [];
+    const results = await zai.functions.invoke('web_search', { query, num: Math.min(num, 20) });
+    return (results || []).map((item: any, i: number) => ({
+      id: i + 1,
+      title: item.name || item.title || '',
+      url: item.url || '',
+      snippet: item.snippet || '',
+      domain: item.host_name || item.domain || tryHostname(item.url),
+      date: item.date || '',
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function tryHostname(url: string): string {
+  try { return new URL(url).hostname; } catch { return ''; }
+}
+
 const SEARCH_TRIGGERS = [
   'latest', 'current', 'today', 'news', 'recent', '2025', '2026',
   'who won', 'what happened', 'stock price', 'weather', 'breaking',
