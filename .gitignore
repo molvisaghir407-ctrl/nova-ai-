@@ -1,0 +1,10 @@
+node_modules/
+.next/
+.env.local
+.env
+*.db
+*.db-journal
+prisma/migrations/
+.vercel/
+dev.log
+server.log
