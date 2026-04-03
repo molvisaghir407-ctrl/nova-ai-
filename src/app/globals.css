@@ -208,3 +208,28 @@
   to   { opacity: 1; transform: translateY(0)   scale(1); }
 }
 .source-pill { animation: source-in 0.3s ease-out both; }
+
+/* ── Nova streaming tokens ───────────────────────────────────────────────────── */
+.nova-token {
+  display: inline;
+  animation: nova-token-in 0.12s ease-out both;
+}
+@keyframes nova-token-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Nova markdown ───────────────────────────────────────────────────────────── */
+.nova-md { max-width: none !important; }
+.nova-md p { margin: 0.5em 0; line-height: 1.75; }
+.nova-md ul, .nova-md ol { margin: 0.5em 0; }
+.nova-md h1, .nova-md h2, .nova-md h3 { margin: 0.8em 0 0.4em; }
+.nova-md pre { margin: 0 !important; background: transparent !important; padding: 0 !important; }
+.nova-md code:not(pre code) { font-size: 0.8em !important; }
+.nova-md table { font-size: 0.8em; }
+
+/* ── Smooth message entry ────────────────────────────────────────────────────── */
+@keyframes nova-msg-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
