@@ -5,33 +5,31 @@ import { memoryManager } from '@/lib/nova/memory';
 import { db } from '@/lib/db';
 import { sessionStore } from '@/lib/kv-sessions';
 
-// ── Kimi K2.5 via DashScope OpenAI-compatible API ─────────────────────────────
-const KIMI_API_KEY = process.env.KIMI_API_KEY!;
-const KIMI_BASE = process.env.KIMI_API_BASE || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
-const KIMI_MODEL = process.env.KIMI_MODEL || 'kimi-k2-instruct';
+// ── Kimi K2 via NVIDIA NIM Universal API ──────────────────────────────────────
+const NIM_API_KEY = process.env.NVIDIA_NIM_API_KEY!;
+const NIM_BASE = process.env.NVIDIA_NIM_BASE || 'https://integrate.api.nvidia.com/v1';
+const NIM_MODEL = process.env.NVIDIA_NIM_MODEL || 'moonshotai/kimi-k2-instruct';
 
-// Fallback to z-ai if Kimi key not set
 async function callLLM(messages: any[], opts: { stream: boolean; enableThinking: boolean; maxTokens?: number }) {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${KIMI_API_KEY}`,
+    Authorization: `Bearer ${NIM_API_KEY}`,
   };
 
   const body: Record<string, any> = {
-    model: KIMI_MODEL,
+    model: NIM_MODEL,
     messages,
     stream: opts.stream,
     max_tokens: opts.maxTokens || 8192,
-    temperature: 0.7,
+    temperature: 0.6,
   };
 
-  // Kimi K2.5 extended thinking
+  // Kimi K2 extended thinking via NVIDIA NIM
   if (opts.enableThinking) {
-    body.enable_thinking = true;
-    body.thinking_budget = 4096;
+    body.thinking = { type: 'enabled', budget_tokens: 5000 };
   }
 
-  return fetch(`${KIMI_BASE}/chat/completions`, {
+  return fetch(`${NIM_BASE}/chat/completions`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
@@ -39,7 +37,7 @@ async function callLLM(messages: any[], opts: { stream: boolean; enableThinking:
 }
 
 // ── System Prompt ─────────────────────────────────────────────────────────────
-const NOVA_SYSTEM = `You are Nova, an exceptionally capable AI assistant powered by Kimi K2.5.
+const NOVA_SYSTEM = `You are Nova, an exceptionally capable AI assistant powered by Kimi K2 via NVIDIA NIM.
 
 ## Core Identity
 You are Nova — intelligent, thoughtful, witty, and deeply capable. You approach every problem with intellectual curiosity and provide responses that are genuinely useful, not just superficially correct.
@@ -135,14 +133,14 @@ export async function POST(req: NextRequest) {
 
     const messages = [systemMessage, ...history];
 
-    logger.info('chat', 'Sending to Kimi K2.5', { messages: messages.length, thinking: enableThinking, stream });
+    logger.info('chat', 'Sending to Kimi K2 via NVIDIA NIM', { messages: messages.length, thinking: enableThinking, stream });
 
     const response = await callLLM(messages, { stream, enableThinking, maxTokens });
 
     if (!response.ok) {
       const errText = await response.text();
-      logger.error('chat', 'Kimi API error', errText);
-      throw new Error(`Kimi API: ${response.status} — ${errText.slice(0, 200)}`);
+      logger.error('chat', 'NVIDIA NIM API error', errText);
+      throw new Error(`NVIDIA NIM: ${response.status} — ${errText.slice(0, 200)}`);
     }
 
     if (!stream) {
