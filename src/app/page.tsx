@@ -441,12 +441,148 @@ function LogsPanel() {
   );
 }
 
+
+// ── Image Generation Panel ─────────────────────────────────────────────────────
+function ImaginePanel() {
+  const [prompt, setPrompt] = useState('');
+  const [negativePrompt, setNegativePrompt] = useState('');
+  const [model, setModel] = useState('black-forest-labs/flux-dev');
+  const [size, setSize] = useState('1024x1024');
+  const [steps, setSteps] = useState(20);
+  const [loading, setLoading] = useState(false);
+  const [images, setImages] = useState<{ b64: string; revisedPrompt: string }[]>([]);
+  const [error, setError] = useState('');
+  const [duration, setDuration] = useState<number | null>(null);
+
+  const generate = async () => {
+    if (!prompt.trim()) { toast.error('Enter a prompt'); return; }
+    setLoading(true); setError(''); setImages([]);
+    try {
+      const [w, h] = size.split('x').map(Number);
+      const res = await fetch('/api/nova/imagine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': window.__nova_key || '' },
+        body: JSON.stringify({ prompt, negativePrompt: negativePrompt || undefined, model, width: w, height: h, steps, numImages: 1 }),
+      });
+      const d = await res.json();
+      if (!d.success) throw new Error(d.error || 'Generation failed');
+      setImages(d.images || []);
+      setDuration(d.duration);
+      toast.success('Image generated!');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed';
+      setError(msg); toast.error(msg.slice(0, 80));
+    }
+    setLoading(false);
+  };
+
+  const downloadImage = (b64: string, i: number) => {
+    const a = document.createElement('a'); a.href = `data:image/png;base64,${b64}`; a.download = `nova-imagine-${Date.now()}-${i}.png`; a.click();
+  };
+
+  return (
+    <div className="flex flex-col gap-4 h-full overflow-y-auto">
+      <div>
+        <h2 className="text-sm font-semibold">Image Generation</h2>
+        <p className="text-xs text-zinc-500">FLUX Dev · FLUX Schnell · SDXL via NVIDIA NIM</p>
+      </div>
+
+      {/* Prompt */}
+      <div className="space-y-2">
+        <label className="text-xs text-zinc-400 font-medium">Prompt</label>
+        <Textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="A futuristic city at sunset, cinematic lighting, 8k..."
+          rows={3} className="resize-none bg-white/5 border-white/10 focus:border-violet-500/50 text-sm" />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-xs text-zinc-400 font-medium">Negative Prompt (optional)</label>
+        <Input value={negativePrompt} onChange={e => setNegativePrompt(e.target.value)} placeholder="blurry, low quality, watermark..."
+          className="bg-white/5 border-white/10 text-sm h-9" />
+      </div>
+
+      {/* Model + Size */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <label className="text-xs text-zinc-400 font-medium">Model</label>
+          <Select value={model} onValueChange={setModel}>
+            <SelectTrigger className="h-9 text-xs bg-white/5 border-white/10"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="black-forest-labs/flux-dev" className="text-xs">FLUX Dev (best)</SelectItem>
+              <SelectItem value="black-forest-labs/flux-schnell" className="text-xs">FLUX Schnell (fast)</SelectItem>
+              <SelectItem value="stabilityai/stable-diffusion-xl" className="text-xs">SDXL</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs text-zinc-400 font-medium">Size</label>
+          <Select value={size} onValueChange={setSize}>
+            <SelectTrigger className="h-9 text-xs bg-white/5 border-white/10"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="512x512" className="text-xs">512×512</SelectItem>
+              <SelectItem value="768x768" className="text-xs">768×768</SelectItem>
+              <SelectItem value="1024x1024" className="text-xs">1024×1024 (default)</SelectItem>
+              <SelectItem value="1024x768" className="text-xs">1024×768 (landscape)</SelectItem>
+              <SelectItem value="768x1024" className="text-xs">768×1024 (portrait)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Steps slider */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-zinc-400 font-medium">Steps</label>
+          <span className="text-xs text-zinc-500">{steps}</span>
+        </div>
+        <Slider min={10} max={50} step={5} value={[steps]} onValueChange={([v]) => setSteps(v)} />
+        <p className="text-[10px] text-zinc-600">More steps = better quality but slower</p>
+      </div>
+
+      {/* Generate button */}
+      <Button onClick={generate} disabled={loading || !prompt.trim()}
+        className="w-full bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-medium">
+        {loading ? (
+          <span className="flex items-center gap-2"><RefreshCw className="w-4 h-4 animate-spin" />Generating...</span>
+        ) : (
+          <span className="flex items-center gap-2"><Wand2 className="w-4 h-4" />Generate Image</span>
+        )}
+      </Button>
+
+      {error && (
+        <div className="p-3 rounded-xl bg-red-950/30 border border-red-500/20 text-xs text-red-400">{error}</div>
+      )}
+
+      {/* Results */}
+      {images.length > 0 && (
+        <div className="space-y-3">
+          {duration && <p className="text-[10px] text-zinc-600 text-center">Generated in {(duration / 1000).toFixed(1)}s</p>}
+          {images.map((img, i) => (
+            <div key={i} className="relative group rounded-2xl overflow-hidden border border-white/10">
+              <img src={`data:image/png;base64,${img.b64}`} alt={img.revisedPrompt} className="w-full object-cover" />
+              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3 gap-2">
+                <button onClick={() => downloadImage(img.b64, i)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 text-white text-xs transition-colors">
+                  <Download className="w-3.5 h-3.5" />Download
+                </button>
+              </div>
+              {img.revisedPrompt && img.revisedPrompt !== prompt && (
+                <p className="text-[10px] text-zinc-500 mt-1.5 px-1 line-clamp-2">{img.revisedPrompt}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Nav ────────────────────────────────────────────────────────────────────────
 const NAV = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
   { id: 'search', label: 'Search', icon: Globe },
   { id: 'memory', label: 'Memory', icon: Brain },
   { id: 'tasks', label: 'Tasks', icon: ListTodo },
+  { id: 'imagine', label: 'Imagine', icon: Wand2 },
   { id: 'settings', label: 'Settings', icon: Settings },
   { id: 'logs', label: 'Logs', icon: Activity },
 ] as const;
@@ -801,6 +937,7 @@ export default function NovaApp() {
               {activeTab === 'settings' && <SettingsPanel />}
               {activeTab === 'logs' && <LogsPanel />}
               {activeTab === 'search' && <SearchPanel />}
+              {activeTab === 'imagine' && <ImaginePanel />}
             </div>
           )}
         </div>

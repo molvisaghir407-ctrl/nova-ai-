@@ -1,12 +1,12 @@
-/**
- * Nova AI Assistant - Global State Management
- * Using Zustand for client-side state
- */
-
 import { create } from 'zustand';
 
 export interface Source {
-  id: number; title: string; url: string; domain: string; snippet: string;
+  id: number;
+  title: string;
+  url: string;
+  snippet: string;
+  domain: string;
+  date: string;
 }
 
 export interface Message {
@@ -18,6 +18,7 @@ export interface Message {
   duration?: number;
   thinking?: string;
   images?: string[];
+  // RAG fields
   sources?: Source[];
   ragUsed?: boolean;
   searchQuery?: string;
@@ -52,6 +53,7 @@ export interface Settings {
   proactiveEnabled: boolean;
   offlineMode: boolean;
   logLevel: string;
+  safetyLevel: 'strict' | 'balanced' | 'permissive';
 }
 
 export interface SearchResult {
@@ -64,222 +66,120 @@ export interface SearchResult {
 }
 
 interface NovaState {
-  // UI State
-  activeTab: 'chat' | 'memory' | 'tasks' | 'settings' | 'logs';
+  activeTab: string;
   isListening: boolean;
   isProcessing: boolean;
   isSpeaking: boolean;
   sidebarOpen: boolean;
-
-  // Chat State
   messages: Message[];
   sessionId: string;
-
-  // Voice State
   voiceSupported: boolean;
   audioLevel: number;
-
-  // Search State
   searchResults: SearchResult[];
   isSearching: boolean;
-
-  // Data State
   tasks: Task[];
   memories: Memory[];
   settings: Settings;
+  systemStats: { uptime: number; messageCount: number; memoryCount: number; taskCount: number };
 
-  // System Stats
-  systemStats: {
-    uptime: number;
-    messageCount: number;
-    memoryCount: number;
-    taskCount: number;
-  };
+  setActiveTab: (tab: string) => void;
+  setIsListening: (v: boolean) => void;
+  setIsProcessing: (v: boolean) => void;
+  setIsSpeaking: (v: boolean) => void;
+  setSidebarOpen: (v: boolean) => void;
 
-  // Actions
-  setActiveTab: (tab: NovaState['activeTab']) => void;
-  setIsListening: (listening: boolean) => void;
-  setIsProcessing: (processing: boolean) => void;
-  setIsSpeaking: (speaking: boolean) => void;
-  setSidebarOpen: (open: boolean) => void;
-  
   addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => string;
-  updateLastMessage: (content: string, thinking?: string, duration?: number, extra?: { sources?: Source[]; ragUsed?: boolean; searchQuery?: string }) => void;
+  updateLastMessage: (
+    content: string,
+    thinking?: string,
+    duration?: number,
+    extra?: { sources?: Source[]; ragUsed?: boolean; searchQuery?: string }
+  ) => void;
   clearMessages: () => void;
-  
-  setVoiceSupported: (supported: boolean) => void;
-  setAudioLevel: (level: number) => void;
-  
-  setSearchResults: (results: SearchResult[]) => void;
-  setIsSearching: (searching: boolean) => void;
-  
-  setTasks: (tasks: Task[]) => void;
-  addTask: (task: Task) => void;
+
+  setVoiceSupported: (v: boolean) => void;
+  setAudioLevel: (v: number) => void;
+  setSearchResults: (v: SearchResult[]) => void;
+  setIsSearching: (v: boolean) => void;
+  setTasks: (v: Task[]) => void;
+  addTask: (v: Task) => void;
   updateTask: (id: string, updates: Partial<Task>) => void;
-  
-  setMemories: (memories: Memory[]) => void;
-  addMemory: (memory: Memory) => void;
-  
-  setSettings: (settings: Settings) => void;
+  setMemories: (v: Memory[]) => void;
+  addMemory: (v: Memory) => void;
+  setSettings: (v: Settings) => void;
   updateSettings: (updates: Partial<Settings>) => void;
-  
   setSystemStats: (stats: Partial<NovaState['systemStats']>) => void;
 }
 
 export const useNovaStore = create<NovaState>((set) => ({
-  // Initial UI State
   activeTab: 'chat',
   isListening: false,
   isProcessing: false,
   isSpeaking: false,
   sidebarOpen: true,
-
-  // Initial Chat State
   messages: [],
   sessionId: `session-${Date.now()}`,
-
-  // Initial Voice State
   voiceSupported: false,
   audioLevel: 0,
-
-  // Initial Search State
   searchResults: [],
   isSearching: false,
-
-  // Initial Data State
   tasks: [],
   memories: [],
   settings: {
-    wakeWord: 'Hey Nova',
-    voiceEnabled: true,
-    ttsEnabled: true,
-    ttsSpeed: 1.0,
-    ttsVoice: 'tongtong',
-    theme: 'dark',
-    language: 'en-US',
-    proactiveEnabled: true,
-    offlineMode: false,
-    logLevel: 'info',
+    wakeWord: 'Hey Nova', voiceEnabled: true, ttsEnabled: true, ttsSpeed: 1.0,
+    ttsVoice: 'tongtong', theme: 'dark', language: 'en-US', proactiveEnabled: true,
+    offlineMode: false, logLevel: 'info', safetyLevel: 'balanced',
   },
+  systemStats: { uptime: 0, messageCount: 0, memoryCount: 0, taskCount: 0 },
 
-  // Initial System Stats
-  systemStats: {
-    uptime: 0,
-    messageCount: 0,
-    memoryCount: 0,
-    taskCount: 0,
-  },
-
-  // Actions
   setActiveTab: (tab) => set({ activeTab: tab }),
-  setIsListening: (listening) => set({ isListening: listening }),
-  setIsProcessing: (processing) => set({ isProcessing: processing }),
-  setIsSpeaking: (speaking) => set({ isSpeaking: speaking }),
-  setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  setIsListening: (v) => set({ isListening: v }),
+  setIsProcessing: (v) => set({ isProcessing: v }),
+  setIsSpeaking: (v) => set({ isSpeaking: v }),
+  setSidebarOpen: (v) => set({ sidebarOpen: v }),
 
   addMessage: (message) => {
-    const id = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    set((state) => ({
-      messages: [
-        ...state.messages,
-        {
-          ...message,
-          id,
-          timestamp: new Date(),
-        },
-      ],
-      systemStats: {
-        ...state.systemStats,
-        messageCount: state.systemStats.messageCount + 1,
-      },
+    const id = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    set((s) => ({
+      messages: [...s.messages, { ...message, id, timestamp: new Date() }],
+      systemStats: { ...s.systemStats, messageCount: s.systemStats.messageCount + 1 },
     }));
     return id;
   },
 
   updateLastMessage: (content, thinking, duration, extra) =>
-    set((state) => {
-      const messages = [...state.messages];
-      if (messages.length > 0) {
-        const lastMessage = messages[messages.length - 1];
-        messages[messages.length - 1] = {
-          ...lastMessage,
-          content,
-          thinking: thinking || lastMessage.thinking,
-          duration: duration || lastMessage.duration,
-          ...(extra || {}),
-        };
-      }
-      return { messages };
+    set((s) => {
+      const msgs = [...s.messages];
+      if (!msgs.length) return {};
+      const last = msgs[msgs.length - 1];
+      msgs[msgs.length - 1] = {
+        ...last,
+        content,
+        // Keep old thinking if new one is empty string (means thinking just finished)
+        thinking: thinking !== undefined ? (thinking || last.thinking) : last.thinking,
+        duration: duration ?? last.duration,
+        ...(extra || {}),
+      };
+      return { messages: msgs };
     }),
 
   clearMessages: () =>
-    set((state) => ({
+    set((s) => ({
       messages: [],
       sessionId: `session-${Date.now()}`,
-      systemStats: {
-        ...state.systemStats,
-        messageCount: 0,
-      },
+      systemStats: { ...s.systemStats, messageCount: 0 },
     })),
 
-  setVoiceSupported: (supported) => set({ voiceSupported: supported }),
-  setAudioLevel: (level) => set({ audioLevel: level }),
-
-  setSearchResults: (results) => set({ searchResults: results }),
-  setIsSearching: (searching) => set({ isSearching: searching }),
-
-  setTasks: (tasks) =>
-    set((state) => ({
-      tasks,
-      systemStats: {
-        ...state.systemStats,
-        taskCount: tasks.length,
-      },
-    })),
-
-  addTask: (task) =>
-    set((state) => ({
-      tasks: [task, ...state.tasks],
-      systemStats: {
-        ...state.systemStats,
-        taskCount: state.systemStats.taskCount + 1,
-      },
-    })),
-
-  updateTask: (id, updates) =>
-    set((state) => ({
-      tasks: state.tasks.map((task) =>
-        task.id === id ? { ...task, ...updates } : task
-      ),
-    })),
-
-  setMemories: (memories) =>
-    set((state) => ({
-      memories,
-      systemStats: {
-        ...state.systemStats,
-        memoryCount: memories.length,
-      },
-    })),
-
-  addMemory: (memory) =>
-    set((state) => ({
-      memories: [memory, ...state.memories],
-      systemStats: {
-        ...state.systemStats,
-        memoryCount: state.systemStats.memoryCount + 1,
-      },
-    })),
-
+  setVoiceSupported: (v) => set({ voiceSupported: v }),
+  setAudioLevel: (v) => set({ audioLevel: v }),
+  setSearchResults: (v) => set({ searchResults: v }),
+  setIsSearching: (v) => set({ isSearching: v }),
+  setTasks: (tasks) => set((s) => ({ tasks, systemStats: { ...s.systemStats, taskCount: tasks.length } })),
+  addTask: (task) => set((s) => ({ tasks: [task, ...s.tasks], systemStats: { ...s.systemStats, taskCount: s.systemStats.taskCount + 1 } })),
+  updateTask: (id, updates) => set((s) => ({ tasks: s.tasks.map((t) => t.id === id ? { ...t, ...updates } : t) })),
+  setMemories: (memories) => set((s) => ({ memories, systemStats: { ...s.systemStats, memoryCount: memories.length } })),
+  addMemory: (memory) => set((s) => ({ memories: [memory, ...s.memories], systemStats: { ...s.systemStats, memoryCount: s.systemStats.memoryCount + 1 } })),
   setSettings: (settings) => set({ settings }),
-
-  updateSettings: (updates) =>
-    set((state) => ({
-      settings: { ...state.settings, ...updates },
-    })),
-
-  setSystemStats: (stats) =>
-    set((state) => ({
-      systemStats: { ...state.systemStats, ...stats },
-    })),
+  updateSettings: (updates) => set((s) => ({ settings: { ...s.settings, ...updates } })),
+  setSystemStats: (stats) => set((s) => ({ systemStats: { ...s.systemStats, ...stats } })),
 }));
