@@ -1,134 +1,274 @@
 import { NextRequest } from 'next/server';
-import ZAI from 'z-ai-web-dev-sdk';
 import { getTimeContext, getPersonalityPrompt } from '@/lib/nova/personality';
 import { logger } from '@/lib/nova/logger';
 import { memoryManager } from '@/lib/nova/memory';
 import { db } from '@/lib/db';
 import { sessionStore } from '@/lib/kv-sessions';
 
-let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null;
-async function getZAI() {
-  if (!zaiInstance) zaiInstance = await ZAI.create();
-  return zaiInstance;
+// ── Kimi K2.5 via DashScope OpenAI-compatible API ─────────────────────────────
+const KIMI_API_KEY = process.env.KIMI_API_KEY!;
+const KIMI_BASE = process.env.KIMI_API_BASE || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+const KIMI_MODEL = process.env.KIMI_MODEL || 'kimi-k2-instruct';
+
+// Fallback to z-ai if Kimi key not set
+async function callLLM(messages: any[], opts: { stream: boolean; enableThinking: boolean; maxTokens?: number }) {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${KIMI_API_KEY}`,
+  };
+
+  const body: Record<string, any> = {
+    model: KIMI_MODEL,
+    messages,
+    stream: opts.stream,
+    max_tokens: opts.maxTokens || 8192,
+    temperature: 0.7,
+  };
+
+  // Kimi K2.5 extended thinking
+  if (opts.enableThinking) {
+    body.enable_thinking = true;
+    body.thinking_budget = 4096;
+  }
+
+  return fetch(`${KIMI_BASE}/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
 }
 
-const SYSTEM_PROMPT = `You are Nova, an advanced AI assistant with exceptional capabilities.
+// ── System Prompt ─────────────────────────────────────────────────────────────
+const NOVA_SYSTEM = `You are Nova, an exceptionally capable AI assistant powered by Kimi K2.5.
 
-## Response Style
-- Be comprehensive yet well-structured
-- Use clear headings (## sections, ### subsections), proper markdown
-- Use **bold** for emphasis, \`code\` for technical terms
-- Include \`\`\`language code blocks when helpful
+## Core Identity
+You are Nova — intelligent, thoughtful, witty, and deeply capable. You approach every problem with intellectual curiosity and provide responses that are genuinely useful, not just superficially correct.
+
+## Response Excellence Standards
+- **Depth first**: Give comprehensive answers. Don't truncate or summarize when detail is needed.
+- **Structure**: Use ##, ###, bullet points, numbered lists, tables, and code blocks to organize complex information.
+- **Code**: Always include language tags in fenced code blocks. Prefer complete, runnable examples over fragments.
+- **Citations**: When discussing facts, be precise. Acknowledge uncertainty where it exists.
+- **Tone**: Professional but warm. Direct without being curt. Smart without being condescending.
 
 ## Thinking Style
-For complex questions: analyze deeply, consider multiple perspectives, show reasoning.
+For complex problems:
+1. Break the problem into components
+2. Consider multiple approaches and their trade-offs
+3. Show your reasoning when it adds value
+4. Give a clear, actionable conclusion
 
-## Capabilities
-Image understanding, code explanation, research synthesis, creative problem solving.
+## Special Capabilities
+- Deep code analysis, debugging, architecture review
+- Research synthesis across complex topics
+- Mathematical reasoning and proofs
+- Creative writing with genuine craft
+- Image analysis and visual understanding
+- Multi-step planning and project management
 
-Remember: Quality over quantity, but be thorough when needed.`;
+## Format Guidelines
+- Use \`inline code\` for technical terms, function names, file paths
+- Use \`\`\`language blocks for all code examples
+- Use **bold** for key terms and emphasis
+- Use > blockquotes for important callouts
+- Use tables for comparisons
+- Keep paragraphs focused — one idea per paragraph
+
+Remember: You have a 128k token context window. Use it. Never cut answers short to save space.`;
 
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
   try {
     const body = await req.json();
-    const { message, sessionId, includeContext = true, images = [], enableThinking = false, stream = true } = body;
+    const {
+      message,
+      sessionId,
+      includeContext = true,
+      images = [],
+      enableThinking = false,
+      stream = true,
+      maxTokens = 8192,
+      clearSession = false,
+    } = body;
 
     if (!message && images.length === 0) {
-      return new Response(JSON.stringify({ error: 'Message or images required' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ error: 'Message or images required' }), {
+        status: 400, headers: { 'Content-Type': 'application/json' },
+      });
     }
 
-    const zai = await getZAI();
     const sessionKey = sessionId || 'default';
 
-    // FIX: Redis/KV session — survives cold starts
-    let history = await sessionStore.get(sessionKey);
-
-    let contextSuffix = '';
-    if (includeContext) {
-      contextSuffix = `\n\n## Current Context\n${getTimeContext()}`;
-      const memCtx = await memoryManager.buildContextPrompt(5);
-      if (memCtx) contextSuffix += memCtx;
+    if (clearSession) {
+      await sessionStore.del(sessionKey);
+      return new Response(JSON.stringify({ success: true, cleared: true }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
-    let systemPrompt = SYSTEM_PROMPT;
-    try {
-      const settings = await db.settings.findUnique({ where: { id: 'nova-settings' } });
-      if ((settings as any)?.safetyLevel) {
-        systemPrompt += '\n\n' + getPersonalityPrompt({ safetyLevel: (settings as any).safetyLevel });
-      }
-    } catch { /* settings not yet seeded */ }
+    let history = await sessionStore.get(sessionKey);
+
+    // Build context
+    let contextNote = '';
+    if (includeContext) {
+      contextNote = `\n\n[System Context: ${getTimeContext()}]`;
+      try {
+        const memCtx = await memoryManager.buildContextPrompt(6);
+        if (memCtx) contextNote += memCtx;
+      } catch { /* ignore */ }
+    }
+
+    // Build messages array
+    const systemMessage = { role: 'system', content: NOVA_SYSTEM + contextNote };
 
     const userContent: any = images.length > 0
-      ? [...(message ? [{ type: 'text', text: message }] : []), ...images.map((img: string) => ({ type: 'image_url', image_url: { url: img } }))]
+      ? [
+          ...(message ? [{ type: 'text', text: message }] : []),
+          ...images.map((img: string) => ({ type: 'image_url', image_url: { url: img } })),
+        ]
       : message;
 
     history.push({ role: 'user', content: userContent });
 
-    // FIX: system prompt prepended to first user message (not as fake assistant turn)
-    const messages = history.map((msg: any, idx: number) => {
-      if (idx === 0 && msg.role === 'user') {
-        const prefix = systemPrompt + contextSuffix + '\n\n---\n\n';
-        return { role: 'user' as const, content: typeof msg.content === 'string' ? prefix + msg.content : [{ type: 'text', text: prefix }, ...msg.content] };
+    // Keep last 40 exchanges (80 messages) + system
+    if (history.length > 80) history = history.slice(-80);
+
+    const messages = [systemMessage, ...history];
+
+    logger.info('chat', 'Sending to Kimi K2.5', { messages: messages.length, thinking: enableThinking, stream });
+
+    const response = await callLLM(messages, { stream, enableThinking, maxTokens });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      logger.error('chat', 'Kimi API error', errText);
+      throw new Error(`Kimi API: ${response.status} — ${errText.slice(0, 200)}`);
+    }
+
+    if (!stream) {
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content ?? '';
+      const thinking = data.choices?.[0]?.message?.reasoning_content ?? '';
+      const usage = data.usage;
+
+      history.push({ role: 'assistant', content });
+      await sessionStore.set(sessionKey, history);
+
+      if (message?.length > 20) {
+        const exists = await memoryManager.findSimilar(message);
+        if (!exists) await memoryManager.store('conversation', `User: ${message}\nNova: ${content.substring(0, 400)}`, 0.3);
       }
-      return { role: msg.role as 'user' | 'assistant', content: msg.content };
+
+      return new Response(JSON.stringify({
+        success: true, response: content, thinking: thinking || null,
+        sessionId: sessionKey, duration: Date.now() - startTime,
+        messageCount: history.length, usage,
+      }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── TRUE STREAMING ────────────────────────────────────────────────────────
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+
+    let fullContent = '';
+    let fullThinking = '';
+
+    const readable = new ReadableStream({
+      async start(controller) {
+        let buffer = '';
+        const send = (obj: object) => {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        };
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || !trimmed.startsWith('data:')) continue;
+              const jsonStr = trimmed.slice(5).trim();
+              if (jsonStr === '[DONE]') continue;
+
+              try {
+                const chunk = JSON.parse(jsonStr);
+                const delta = chunk.choices?.[0]?.delta;
+                if (!delta) continue;
+
+                // Thinking token (reasoning_content)
+                if (delta.reasoning_content) {
+                  fullThinking += delta.reasoning_content;
+                  send({ type: 'thinking', content: delta.reasoning_content });
+                }
+
+                // Content token
+                if (delta.content) {
+                  fullContent += delta.content;
+                  send({ type: 'content', content: delta.content });
+                }
+
+                // Usage stats
+                if (chunk.usage) {
+                  send({ type: 'usage', usage: chunk.usage });
+                }
+              } catch { /* skip malformed */ }
+            }
+          }
+
+          // Save to session + memory after stream completes
+          if (fullContent) {
+            history.push({ role: 'assistant', content: fullContent });
+            if (history.length > 80) history = history.slice(-80);
+            await sessionStore.set(sessionKey, history);
+
+            if (message?.length > 20) {
+              const exists = await memoryManager.findSimilar(message);
+              if (!exists) await memoryManager.store('conversation', `User: ${message}\nNova: ${fullContent.substring(0, 400)}`, 0.3);
+            }
+          }
+
+          const duration = Date.now() - startTime;
+          send({ type: 'done', sessionId: sessionKey, duration, messageCount: history.length });
+          controller.close();
+        } catch (err) {
+          logger.error('chat', 'Stream error', err);
+          send({ type: 'error', message: err instanceof Error ? err.message : 'Stream failed' });
+          controller.close();
+        }
+      },
     });
 
-    const opts = { messages, thinking: enableThinking ? { type: 'enabled' as const } : { type: 'disabled' as const } };
-    const response = images.length > 0 ? await zai.chat.completions.createVision(opts) : await zai.chat.completions.create(opts);
-    const content = response.choices[0]?.message?.content ?? '';
-    const thinking = ('thinking' in response ? response.thinking : '') as string;
-
-    if (!content) throw new Error('Empty response from LLM');
-
-    history.push({ role: 'assistant', content });
-    if (history.length > 50) history = history.slice(-50);
-    await sessionStore.set(sessionKey, history);
-
-    const duration = Date.now() - startTime;
-    logger.info('chat', 'Response generated', { duration: `${duration}ms` });
-
-    // FIX: only store substantive messages, with dedup
-    if (message && message.length > 20) {
-      const exists = await memoryManager.findSimilar(message);
-      if (!exists) await memoryManager.store('conversation', `User: ${message}\nNova: ${content.substring(0, 400)}`, 0.3);
-    }
-
-    if (stream) {
-      const encoder = new TextEncoder();
-      const readable = new ReadableStream({
-        async start(controller) {
-          try {
-            if (thinking) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'thinking', content: thinking })}\n\n`));
-              await new Promise(r => setTimeout(r, 100));
-            }
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'metadata', sessionId: sessionKey, duration, messageCount: history.length - 1 })}\n\n`));
-            const words = content.split(/(\s+)/);
-            for (let i = 0; i < words.length; i++) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content: words[i], done: i === words.length - 1 })}\n\n`));
-              const delay = words[i].match(/^[.,!?;:]$/) ? 50 : words[i].match(/^\s+$/) ? 10 : 20;
-              await new Promise(r => setTimeout(r, delay));
-            }
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
-            controller.close();
-          } catch (err) { logger.error('chat', 'Stream error', err); controller.error(err); }
-        },
-      });
-      return new Response(readable, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' } });
-    }
-
-    return new Response(JSON.stringify({ success: true, response: content, thinking: thinking || null, sessionId: sessionKey, duration, messageCount: history.length - 1 }), { headers: { 'Content-Type': 'application/json' } });
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      },
+    });
   } catch (error) {
-    logger.error('chat', 'Failed', error);
-    return new Response(JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Failed' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    logger.error('chat', 'Request failed', error);
+    return new Response(
+      JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Failed', duration: Date.now() - startTime }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 }
 
 export async function GET(req: NextRequest) {
-  const sessionId = new URL(req.url).searchParams.get('sessionId') || 'default';
+  const { searchParams } = new URL(req.url);
+  const sessionId = searchParams.get('sessionId') || 'default';
   const history = await sessionStore.get(sessionId);
-  return new Response(JSON.stringify({ success: true, sessionId, messageCount: Math.max(0, history.length - 1), hasHistory: history.length > 0 }), { headers: { 'Content-Type': 'application/json' } });
+  return new Response(
+    JSON.stringify({ success: true, sessionId, messageCount: history.length, hasHistory: history.length > 0 }),
+    { headers: { 'Content-Type': 'application/json' } }
+  );
 }
 
 export async function DELETE(req: NextRequest) {

@@ -120,3 +120,19 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Nova Enhanced Styles */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+.prose { max-width: none !important; }
+.prose p { margin: 0.4em 0; }
+.prose ul, .prose ol { margin: 0.4em 0; }
+.prose h1, .prose h2, .prose h3 { margin: 0.6em 0 0.3em; }
+.prose pre { margin: 0 !important; background: transparent !important; padding: 0 !important; }
+.prose code:not(pre code) { font-size: 0.8em !important; }
+
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+.animate-blink { animation: blink 1s step-end infinite; }
