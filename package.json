@@ -1,5 +1,5 @@
 {
-  "name": "nextjs_tailwind_shadcn_ts",
+  "name": "nova-ai",
   "version": "0.2.0",
   "private": true,
   "scripts": {
@@ -11,7 +11,9 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "typecheck": "tsc --noEmit",
+    "validate": "bun run typecheck && bun run lint"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
