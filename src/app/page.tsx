@@ -18,6 +18,7 @@ import { MessageBubble } from '@/components/chat/MessageBubble';
 import { ChatInput } from '@/components/chat/ChatInput';
 import type { ExtMessage, Source, StreamEvent } from '@/types/nova.types';
 import { cn } from '@/lib/utils';
+import type { AgentDefinition } from '@/lib/nova/agents/registry';
 
 declare global {
   interface Window { __nova_key?: string }
@@ -213,6 +214,7 @@ export default function NovaApp() {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [thinkingStreamingId, setThinkingStreamingId] = useState<string | null>(null);
   const [tokenCount, setTokenCount] = useState<{ prompt: number; completion: number } | null>(null);
+  const [activeAgent, setActiveAgent] = useState<{ id: string; name: string; role: string; model: string; thinking: boolean } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
@@ -256,6 +258,7 @@ export default function NovaApp() {
     setSelectedImages([]);
     setIsProcessing(true);
     setTokenCount(null);
+    setActiveAgent(null);
     scrollToBottom();
 
     addMessage({ role: 'user', content: userMsg, images: selectedImages.length > 0 ? selectedImages : undefined });
@@ -290,6 +293,11 @@ export default function NovaApp() {
           let evt: StreamEvent;
           try { evt = JSON.parse(jsonStr) as StreamEvent; } catch { continue; }
 
+          if ((evt as any).type === 'agent') {
+            const a = (evt as any).agent;
+            if (a) setActiveAgent(a);
+            continue;
+          }
           if (evt.type === 'rag') { ragSources = evt.sources; ragUsed = true; continue; }
           if (evt.type === 'thinking') {
             if (!thinkingStart) { thinkingStart = Date.now(); setThinkingStreamingId(assistantId); }
@@ -349,6 +357,13 @@ export default function NovaApp() {
           </button>
           <span className="text-sm font-medium capitalize">{activeTab}</span>
           {activeTab === 'chat' && <Badge variant="outline" className="text-[10px] border-violet-500/30 text-violet-400/70 h-5 px-1.5"><Infinity className="w-2.5 h-2.5 mr-1" />128k</Badge>}
+          {activeTab === 'chat' && activeAgent && (
+            <motion.div initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
+              <span className="text-[10px] text-violet-300 font-medium">{activeAgent.name}</span>
+              {activeAgent.thinking && <Brain className="w-2.5 h-2.5 text-violet-400" />}
+            </motion.div>
+          )}
           <div className="ml-auto flex items-center gap-1.5">
             {activeTab === 'chat' && (
               <>

@@ -60,7 +60,17 @@ class NovaLogger {
     return this.addLog({ level: 'error', category, message, error: error instanceof Error ? error.message : String(error ?? ''), details });
   }
 
-  getLogs(opts?: { level?: LogLevel; category?: string; limit?: number }): LogEntry[] {
+  exportLogs(format: 'json' | 'csv' = 'json'): string {
+    const logs = this.getLogs({ limit: 10000 });
+    if (format === 'csv') {
+      const header = 'timestamp,level,category,message';
+      const rows = logs.map(l => `${new Date(l.timestamp as unknown as number).toISOString()},${l.level},${l.category},"${l.message.replace(/"/g, '""')}"`);
+      return [header, ...rows].join('\n');
+    }
+    return JSON.stringify(logs, null, 2);
+  }
+
+    getLogs(opts?: { level?: LogLevel; category?: string; limit?: number }): LogEntry[] {
     let filtered = [...this.logs];
     if (opts?.level) filtered = filtered.filter(l => l.level === opts.level);
     if (opts?.category) filtered = filtered.filter(l => l.category === opts.category);
@@ -72,3 +82,14 @@ class NovaLogger {
 }
 
 export const logger = new NovaLogger();
+
+// Methods added for logs route compatibility
+export function exportLogs(format: 'json' | 'csv' = 'json'): string {
+  const logs = logger.getLogs({ limit: 10000 });
+  if (format === 'csv') {
+    const header = 'timestamp,level,category,message';
+    const rows = logs.map(l => `${l.timestamp},${l.level},${l.category},"${l.message.replace(/"/g, '""')}"`);
+    return [header, ...rows].join('\n');
+  }
+  return JSON.stringify(logs, null, 2);
+}

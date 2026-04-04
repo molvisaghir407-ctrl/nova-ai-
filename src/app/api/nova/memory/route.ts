@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
         });
         return NextResponse.json({
           success: true,
-          memories: memories.map(m => ({
+          memories: memories.map((m: any) => (({
             id: m.id,
             category: m.category,
             content: m.content,
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
             accessedAt: m.accessedAt,
             accessCount: m.accessCount,
             createdAt: m.createdAt,
-          })),
+          }))),
         });
     }
   } catch (error) {

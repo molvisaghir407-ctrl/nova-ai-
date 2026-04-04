@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
     const { texts = [], model } = body;
     if (!texts.length) return NextResponse.json({ error: 'texts array required' }, { status: 400 });
     if (texts.length > 50) return NextResponse.json({ error: 'Max 50 texts' }, { status: 400 });
-    const embeddings = await embed(texts, model);
+    const embeddings = await embed(texts, model as any);
     return NextResponse.json({ success: true, embeddings, dimensions: embeddings[0]?.length ?? 0 });
   } catch (error) {
     logger.error('embed', 'Embed failed', error instanceof Error ? error : new Error(String(error)));

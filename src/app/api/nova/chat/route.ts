@@ -4,39 +4,19 @@ import { logger } from '@/lib/nova/logger';
 import { memoryManager } from '@/lib/nova/memory';
 import { sessionStore } from '@/lib/kv-sessions';
 import { chatStream, parseNIMStream } from '@/lib/nova/nim/client';
-import { routeTask, classifyTask, NIM_MODELS } from '@/lib/nova/nim/models';
 import { classifyIntent, shouldUseRAG } from '@/lib/nova/rag/intent';
 import { runRAG, buildRAGContext } from '@/lib/nova/rag/orchestrator';
+import { selectAgent, getAgentById } from '@/lib/nova/agents/registry';
 import type { NIMChatMessage } from '@/types/nvidia.types';
 import type { StreamEvent } from '@/types/nova.types';
 
-const NOVA_SYSTEM = `You are Nova, a highly capable AI assistant powered by NVIDIA NIM.
-
-## Identity
-Nova — intelligent, thorough, witty. You give genuinely useful, complete responses.
-
-## Response Standards
-- **Depth**: Never truncate. Use the full context window available.
-- **Structure**: Use ##/### headings, bullets, tables, code blocks as needed.
-- **Code**: Always use language-tagged fenced blocks. Write complete, runnable examples.
-- **Accuracy**: Acknowledge uncertainty rather than hallucinate.
-- **Citations**: When using web results, cite as [1], [2], etc.
-
-## Format Rules
-- \`inline code\` for terms, function names, file paths
-- \`\`\`language blocks for ALL code
-- **bold** for key terms
-- > blockquotes for callouts
-- Tables for comparisons
-- One clear idea per paragraph`;
-
-function buildSystemPrompt(contextNote: string): string {
-  return NOVA_SYSTEM + contextNote;
-}
-
-async function buildContext(message: string, includeContext: boolean, enableRAG: boolean): Promise<{ contextNote: string; ragSources: import('@/types/nova.types').Source[] }> {
+async function buildContext(
+  message: string, includeContext: boolean, enableRAG: boolean,
+  onAgentUpdate?: (id: string, status: 'running' | 'done' | 'error', count: number) => void,
+): Promise<{ contextNote: string; ragSources: import('@/types/nova.types').Source[]; ragSearchQuery: string }> {
   let contextNote = '';
   let ragSources: import('@/types/nova.types').Source[] = [];
+  let ragSearchQuery = '';
 
   if (includeContext) {
     contextNote += `\n\n[Time: ${getTimeContext()}]`;
@@ -50,16 +30,17 @@ async function buildContext(message: string, includeContext: boolean, enableRAG:
     const intent = classifyIntent(message);
     if (shouldUseRAG(intent)) {
       try {
-        const rag = await runRAG(message);
+        const rag = await runRAG(message, onAgentUpdate);
         if (rag.sources.length > 0) {
           ragSources = rag.sources;
+          ragSearchQuery = rag.searchQuery;
           contextNote += buildRAGContext(rag);
         }
       } catch (e) { logger.warn('chat', 'RAG failed', { error: String(e) }); }
     }
   }
 
-  return { contextNote, ragSources };
+  return { contextNote, ragSources, ragSearchQuery };
 }
 
 function generateTitle(message: string): string {
@@ -74,17 +55,18 @@ export async function POST(req: NextRequest) {
       message?: string; sessionId?: string; images?: string[];
       enableThinking?: boolean; stream?: boolean; maxTokens?: number;
       clearSession?: boolean; includeContext?: boolean; userId?: string;
-      enableRAG?: boolean; task?: string;
+      enableRAG?: boolean; agentId?: string; model?: string;
     };
 
     const {
       message = '', sessionId, images = [], enableThinking = false,
-      stream = true, maxTokens = 16000, clearSession = false,
-      includeContext = true, userId = 'default', enableRAG = true, task,
+      stream = true, maxTokens, clearSession = false,
+      includeContext = true, userId = 'default', enableRAG = true,
+      agentId, model: userModel,
     } = body;
 
     if (!message && images.length === 0) {
-      return Response.json({ success: false, error: 'Message or images required', code: 'INVALID_INPUT' }, { status: 400 });
+      return Response.json({ error: 'Message or images required' }, { status: 400 });
     }
 
     const sessionKey = sessionId ?? `session-${Date.now()}`;
@@ -97,17 +79,31 @@ export async function POST(req: NextRequest) {
     let history = await sessionStore.get(sessionKey);
     const isNew = history.length === 0;
 
-    // Classify task for model routing
-    const nimTask = task as import('@/types/nvidia.types').NIMTask | undefined
-      ?? classifyTask(message, images.length > 0, enableThinking);
-    const model = routeTask(nimTask);
+    // ── Select agent ──────────────────────────────────────────────────────────
+    const intent = classifyIntent(message);
+    const agent = agentId
+      ? (getAgentById(agentId) ?? selectAgent(message, intent, userModel))
+      : selectAgent(message, intent, userModel);
 
-    // Build context + RAG
-    const { contextNote, ragSources } = await buildContext(message, includeContext, enableRAG && !enableThinking);
+    const useThinking = enableThinking || agent.useThinking;
+    const resolvedTokens = maxTokens ?? agent.maxTokens;
 
-    const systemContent = buildSystemPrompt(contextNote);
+    logger.info('chat', `Agent: ${agent.name} (${agent.model})`, { intent, thinking: useThinking });
 
-    // Build user content
+    // ── RAG + context ─────────────────────────────────────────────────────────
+    let agentEvents: StreamEvent[] = [];
+    const { contextNote, ragSources, ragSearchQuery } = await buildContext(
+      message,
+      includeContext,
+      enableRAG && !useThinking,
+      (id, status, count) => {
+        agentEvents.push({ type: 'agent_update', agentId: id, status, resultCount: count });
+      },
+    );
+
+    // ── Build messages ────────────────────────────────────────────────────────
+    const systemContent = agent.systemPrompt + contextNote;
+
     const userContent: NIMChatMessage['content'] = images.length > 0
       ? [
           ...(message ? [{ type: 'text' as const, text: message }] : []),
@@ -120,24 +116,39 @@ export async function POST(req: NextRequest) {
 
     const nimMessages: NIMChatMessage[] = [
       { role: 'system', content: systemContent },
-      ...history.map((m: { role: string; content: NIMChatMessage['content'] }) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      ...history.map((m: { role: string; content: NIMChatMessage['content'] }) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      })),
     ];
 
+    // ── Vision: override model if images present ──────────────────────────────
+    const finalModel = images.length > 0
+      ? 'meta/llama-3.2-90b-vision-instruct'
+      : (userModel ?? agent.model);
+
     const nimOpts = {
-      model,
+      model: finalModel,
       messages: nimMessages,
       stream: true as const,
-      max_tokens: maxTokens,
-      temperature: 0.6,
+      max_tokens: resolvedTokens,
+      temperature: agent.temperature,
       top_p: 0.95,
-      ...(enableThinking ? { thinking: { type: 'enabled' as const, budget_tokens: 8000 } } : {}),
+      ...(useThinking ? { thinking: { type: 'enabled' as const, budget_tokens: 8000 } } : {}),
     };
 
-    logger.info('chat', `Sending to ${model}`, { task: nimTask, thinking: enableThinking, ragSources: ragSources.length });
     const response = await chatStream(nimOpts);
 
+    // ── Emit agent info in SSE event ──────────────────────────────────────────
+    const agentInfo = {
+      id: agent.id,
+      name: agent.name,
+      role: agent.role,
+      model: finalModel,
+      thinking: useThinking,
+    };
+
     if (!stream) {
-      // Non-streaming path
       let content = '', thinking = '';
       for await (const event of parseNIMStream(response)) {
         if (event.type === 'thinking') thinking += event.content;
@@ -145,64 +156,90 @@ export async function POST(req: NextRequest) {
       }
       history.push({ role: 'assistant', content });
       await sessionStore.set(sessionKey, history);
-      if (isNew) await sessionStore.upsertConversation(userId, { id: sessionKey, title: generateTitle(message), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messageCount: history.length, preview: message.slice(0, 80) });
-      return Response.json({ success: true, response: content, thinking: thinking || null, sessionId: sessionKey, duration: Date.now() - startTime, ragSources, ragUsed: ragSources.length > 0 });
+      if (isNew) await sessionStore.upsertConversation(userId, {
+        id: sessionKey, title: generateTitle(message),
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        messageCount: history.length, preview: message.slice(0, 80),
+      });
+      return Response.json({
+        success: true, response: content, thinking: thinking || null,
+        sessionId: sessionKey, duration: Date.now() - startTime,
+        ragSources, ragUsed: ragSources.length > 0, agent: agentInfo,
+      });
     }
 
-    // Streaming path
+    // ── Streaming path ────────────────────────────────────────────────────────
     const encoder = new TextEncoder();
     let fullContent = '';
     let fullThinking = '';
 
     const readable = new ReadableStream({
       async start(controller) {
-        const send = (obj: StreamEvent) => {
+        const send = (obj: StreamEvent | { type: string; [k: string]: unknown }) => {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
         };
 
         try {
-          if (ragSources.length > 0) send({ type: 'rag', sources: ragSources, searchQuery: message });
+          // 1. Emit agent info immediately so UI can show which agent is working
+          send({ type: 'agent', agent: agentInfo });
 
+          // 2. Emit any buffered agent update events from RAG
+          for (const ev of agentEvents) send(ev);
+          agentEvents = [];
+
+          // 3. Emit RAG sources
+          if (ragSources.length > 0) {
+            send({ type: 'rag', sources: ragSources, searchQuery: ragSearchQuery } as StreamEvent);
+          }
+
+          // 4. Stream LLM tokens
           for await (const event of parseNIMStream(response)) {
             if (event.type === 'thinking') { fullThinking += event.content; send(event); }
             else if (event.type === 'content') { fullContent += event.content; send(event); }
             else if (event.type === 'usage') { send(event); }
           }
 
+          // 5. Persist
           if (fullContent) {
             history.push({ role: 'assistant', content: fullContent });
             if (history.length > 120) history = history.slice(-120);
             await sessionStore.set(sessionKey, history);
-            if (isNew) await sessionStore.upsertConversation(userId, { id: sessionKey, title: generateTitle(message), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messageCount: history.length, preview: message.slice(0, 80) });
+            if (isNew) await sessionStore.upsertConversation(userId, {
+              id: sessionKey, title: generateTitle(message),
+              createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+              messageCount: history.length, preview: message.slice(0, 80),
+            });
             if (message.length > 20) {
               const exists = await memoryManager.findSimilar(message);
               if (!exists) await memoryManager.store('conversation', `User: ${message}\nNova: ${fullContent.slice(0, 400)}`, 0.3);
             }
           }
 
-          const doneEvent: StreamEvent = { type: 'done', sessionId: sessionKey, duration: Date.now() - startTime, messageCount: history.length, ragSources, ragUsed: ragSources.length > 0 };
-          send(doneEvent);
+          send({ type: 'done', sessionId: sessionKey, duration: Date.now() - startTime, messageCount: history.length, ragSources, ragUsed: ragSources.length > 0 } as StreamEvent);
           controller.close();
         } catch (err) {
-          const errEvent: StreamEvent = { type: 'error', message: err instanceof Error ? err.message : 'Stream failed', code: 'STREAM_ERROR' };
-          send(errEvent);
+          send({ type: 'error', message: err instanceof Error ? err.message : 'Stream failed' } as StreamEvent);
           controller.close();
         }
       },
     });
 
     return new Response(readable, {
-      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' },
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      },
     });
   } catch (error) {
     logger.error('chat', 'Request failed', error instanceof Error ? error : new Error(String(error)));
-    return Response.json({ success: false, error: error instanceof Error ? error.message : 'Failed', code: 'INTERNAL_ERROR', duration: Date.now() - startTime }, { status: 500 });
+    return Response.json({ error: error instanceof Error ? error.message : 'Failed' }, { status: 500 });
   }
 }
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const sessionId = searchParams.get('sessionId') ?? 'default';
+  const sessionId = new URL(req.url).searchParams.get('sessionId') ?? 'default';
   const history = await sessionStore.get(sessionId);
   return Response.json({ success: true, sessionId, messageCount: history.length });
 }

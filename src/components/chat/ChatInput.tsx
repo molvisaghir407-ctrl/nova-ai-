@@ -43,7 +43,7 @@ export function ChatInput({ value, onChange, onSend, isProcessing, enableThinkin
         newImgs.push(ev.target?.result as string);
         if (++loaded === files.length) onImageAdd(newImgs);
       };
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(file as unknown as Blob);
     });
     if (e.target) e.target.value = '';
   };
