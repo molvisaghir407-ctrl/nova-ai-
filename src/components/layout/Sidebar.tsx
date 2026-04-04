@@ -1,5 +1,5 @@
 'use client';
-import { useState, useCallback, memo } from 'react';
+import { useState, useCallback, memo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, MessageSquare, Globe, Brain, ListTodo, Wand2, Settings, Activity, Database, Zap, Layers, Plus, ChevronRight, MessageCircle, Trash } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -43,7 +43,7 @@ function ConversationList({ currentId, onSelect, onNew }: { currentId: string; o
     setLoading(false);
   }, [apiKey]);
 
-  useState(() => { load(); });
+  useEffect(() => { void load(); }, [load]);
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();

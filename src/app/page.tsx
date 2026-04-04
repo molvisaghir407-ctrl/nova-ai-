@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, memo } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Sparkles, Trash2, Plus, Check, ChevronDown, ChevronUp, Globe, X, Copy, CheckCircle, Bot, User, Zap, Database, Activity, FileCode2, Search, Volume2, RefreshCw, Wand2, Infinity, Paperclip, SlidersHorizontal, PanelLeft, ExternalLink, Newspaper, TrendingUp, Download, Cpu, Wifi, BookOpen, Hash, ImageIcon, MessageCircle, Clock, Layers, ChevronRight, Trash, Brain, MessageSquare, ListTodo, Settings } from 'lucide-react';
+import { Sparkles, Trash2, Plus, Check, Globe, X, Bot, FileCode2, Search, Volume2, RefreshCw, Wand2, Infinity, PanelLeft, Newspaper, TrendingUp, Download, Cpu, Wifi, BookOpen, Hash, ImageIcon, Layers, Trash, Brain, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -259,7 +259,7 @@ export default function NovaApp() {
     scrollToBottom();
 
     addMessage({ role: 'user', content: userMsg, images: selectedImages.length > 0 ? selectedImages : undefined });
-    const assistantId = addMessage({ role: 'assistant', content: '', thinking: '' } as Omit<ExtMessage, 'id' | 'timestamp'>);
+    let assistantId = addMessage({ role: 'assistant', content: '', thinking: '' } as Omit<ExtMessage, 'id' | 'timestamp'>);
     setStreamingId(assistantId);
     setThinkingStreamingId(null);
 
