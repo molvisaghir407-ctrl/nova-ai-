@@ -48,7 +48,7 @@ class NovaLogger {
 
   private async persistToDb(log: LogEntry): Promise<void> {
     try {
-      const { db } = await import('@/lib/db') as { db: { auditLog: { create(args: { data: Record<string, unknown> }): Promise<unknown> } } };
+      const { db } = await import('@/lib/db') as unknown as { db: { auditLog: { create(args: { data: Record<string, unknown> }): Promise<unknown> } } };
       await db.auditLog.create({ data: { action: log.message, category: log.category, details: log.details ?? log.error ? JSON.stringify({ ...(log.details ?? {}), error: log.error }) : null, success: log.level !== 'error' } });
     } catch { /* ignore */ }
   }

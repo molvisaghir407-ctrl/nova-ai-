@@ -59,7 +59,7 @@ let _db: DBClient | null = null;
 async function getDb(): Promise<DBClient | null> {
   if (_db) return _db;
   try {
-    const mod = await import('@/lib/db') as { db: DBClient };
+    const mod = await import('@/lib/db') as unknown as { db: DBClient };
     _db = mod.db;
     return _db;
   } catch { return null; }
