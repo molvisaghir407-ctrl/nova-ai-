@@ -176,7 +176,7 @@ function SettingsPanel() {
         {[{ key: 'voiceEnabled', label: 'Voice Input', icon: Volume2 }, { key: 'ttsEnabled', label: 'Text to Speech', icon: Volume2 }, { key: 'proactiveEnabled', label: 'Proactive Mode', icon: Sparkles }, { key: 'offlineMode', label: 'Offline Mode', icon: Wifi }].map(({ key, label, icon: Icon }) => (
           <div key={key} className="flex items-center justify-between p-3 rounded-xl bg-white/4 border border-white/8">
             <div className="flex items-center gap-3"><Icon className="w-4 h-4 text-zinc-400" /><span className="text-xs font-medium">{label}</span></div>
-            <Switch checked={!!(settings as Record<string, unknown>)[key]} onCheckedChange={v => updateSettings({ [key]: v } as Parameters<typeof updateSettings>[0])} />
+            <Switch checked={!!(settings as unknown as Record<string, unknown>)[key]} onCheckedChange={v => updateSettings({ [key]: v } as Parameters<typeof updateSettings>[0])} />
           </div>
         ))}
         <div className="p-3 rounded-xl bg-violet-950/40 border border-violet-500/20">
