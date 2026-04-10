@@ -12,8 +12,9 @@ interface StreamingTextProps {
 const MarkdownComponents: Components = {
   code({ className, children, ...props }) {
     const lang = (className ?? '').replace('language-', '');
-    const isBlock = Boolean(className);
-    if (!isBlock) return <code className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-xs text-violet-300" {...props}>{children}</code>;
+    if (!className) {
+      return <code className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-xs text-violet-300" {...props}>{children}</code>;
+    }
     return <CodeBlock language={lang}>{String(children).replace(/\n$/, '')}</CodeBlock>;
   },
   table: ({ children }) => <div className="overflow-x-auto my-3"><table className="w-full text-xs border-collapse">{children}</table></div>,
@@ -29,13 +30,17 @@ const MarkdownComponents: Components = {
   p: ({ children }) => <p className="my-1.5 leading-7">{children}</p>,
 };
 
+// DeepSeek-style: renders words one by one with staggered animation
+// Uses direct DOM writes during streaming, full ReactMarkdown after done
 export const StreamingText = memo(function StreamingText({ content, isStreaming }: StreamingTextProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const prevContentRef = useRef('');
   const frameRef = useRef<number | null>(null);
-  const pendingRef = useRef('');
+  const wordBufRef = useRef('');
+  const wordIndexRef = useRef(0);
   const [settled, setSettled] = useState(!isStreaming);
 
+  // During streaming: append new text word-by-word with staggered animation
   useEffect(() => {
     if (!isStreaming) {
       prevContentRef.current = content;
@@ -44,30 +49,39 @@ export const StreamingText = memo(function StreamingText({ content, isStreaming 
     }
 
     const newPart = content.slice(prevContentRef.current.length);
-    if (newPart) {
-      pendingRef.current += newPart;
-      prevContentRef.current = content;
+    if (!newPart) return;
+    prevContentRef.current = content;
+    wordBufRef.current += newPart;
 
-      // Batch DOM writes on animation frames for smooth rendering
-      if (!frameRef.current) {
-        frameRef.current = requestAnimationFrame(() => {
-          frameRef.current = null;
-          if (containerRef.current && pendingRef.current) {
-            const span = document.createElement('span');
-            span.className = 'nova-token';
-            span.textContent = pendingRef.current;
-            containerRef.current.appendChild(span);
-            pendingRef.current = '';
-          }
-        });
-      }
-    }
+    if (frameRef.current) return; // batch on next frame
+
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
+      if (!containerRef.current || !wordBufRef.current) return;
+
+      const text = wordBufRef.current;
+      wordBufRef.current = '';
+
+      // Split into word+space units and animate each
+      const tokens = text.match(/\S+\s*/g) ?? [text];
+      const frag = document.createDocumentFragment();
+      tokens.forEach((token, i) => {
+        const span = document.createElement('span');
+        span.className = 'nova-word';
+        span.style.animationDelay = `${i * 18}ms`;
+        span.textContent = token;
+        frag.appendChild(span);
+        wordIndexRef.current++;
+      });
+      containerRef.current.appendChild(frag);
+    });
 
     return () => {
       if (frameRef.current) { cancelAnimationFrame(frameRef.current); frameRef.current = null; }
     };
   }, [content, isStreaming]);
 
+  // When settled: switch to full markdown render
   if (settled) {
     return (
       <div className="prose prose-invert prose-sm max-w-none nova-md">
@@ -77,8 +91,8 @@ export const StreamingText = memo(function StreamingText({ content, isStreaming 
   }
 
   return (
-    <div className="text-sm leading-7 text-zinc-100 whitespace-pre-wrap">
-      <div ref={containerRef} />
+    <div className="text-sm leading-7 text-zinc-100">
+      <div ref={containerRef} style={{ display: 'inline' }} />
       <span className="streaming-cursor" />
     </div>
   );
