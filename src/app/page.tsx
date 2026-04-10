@@ -294,7 +294,7 @@ function SettingsPanel() {
         <div className="p-3 rounded-xl bg-white/4 border border-white/8 space-y-3">
           <div className="flex items-center justify-between">
             <div><p className="text-xs font-medium">Auto Web Search</p><p className="text-[11px] text-zinc-500">Like Grok: fetch live data for news/stocks/weather</p></div>
-            <Switch checked={!!(settings as Record<string, unknown>)['proactiveEnabled']} onCheckedChange={v => updateSettings({ proactiveEnabled: v })} />
+            <Switch checked={!!(settings as unknown as Record<string, unknown>)['proactiveEnabled']} onCheckedChange={v => updateSettings({ proactiveEnabled: v })} />
           </div>
           <div className="space-y-2">
             <div className="flex justify-between">
@@ -313,7 +313,7 @@ function SettingsPanel() {
         {[{ key: 'voiceEnabled', label: 'Voice Input', desc: 'Enable microphone' }, { key: 'ttsEnabled', label: 'Text to Speech', desc: 'Nova speaks responses' }].map(({ key, label, desc }) => (
           <div key={key} className="flex items-center justify-between p-3 rounded-xl bg-white/4 border border-white/8">
             <div><p className="text-xs font-medium">{label}</p><p className="text-[11px] text-zinc-500">{desc}</p></div>
-            <Switch checked={!!(settings as Record<string, unknown>)[key]} onCheckedChange={v => updateSettings({ [key]: v } as Parameters<typeof updateSettings>[0])} />
+            <Switch checked={!!(settings as unknown as Record<string, unknown>)[key]} onCheckedChange={v => updateSettings({ [key]: v } as Parameters<typeof updateSettings>[0])} />
           </div>
         ))}
         <div className="p-3 rounded-xl bg-white/4 border border-white/8">
@@ -328,12 +328,12 @@ function SettingsPanel() {
         {[{ key: 'offlineMode', label: 'Offline Mode', desc: 'Disable web search & RAG' }].map(({ key, label, desc }) => (
           <div key={key} className="flex items-center justify-between p-3 rounded-xl bg-white/4 border border-white/8">
             <div><p className="text-xs font-medium">{label}</p><p className="text-[11px] text-zinc-500">{desc}</p></div>
-            <Switch checked={!!(settings as Record<string, unknown>)[key]} onCheckedChange={v => updateSettings({ [key]: v } as Parameters<typeof updateSettings>[0])} />
+            <Switch checked={!!(settings as unknown as Record<string, unknown>)[key]} onCheckedChange={v => updateSettings({ [key]: v } as Parameters<typeof updateSettings>[0])} />
           </div>
         ))}
         <div className="p-3 rounded-xl bg-white/4 border border-white/8">
           <p className="text-xs font-medium mb-2">Safety Level</p>
-          <Select value={(settings as Record<string, string>)['safetyLevel'] ?? 'balanced'} onValueChange={v => updateSettings({ safetyLevel: v as 'strict' | 'balanced' | 'permissive' })}>
+          <Select value={(settings as unknown as Record<string, string>)['safetyLevel'] ?? 'balanced'} onValueChange={v => updateSettings({ safetyLevel: v as 'strict' | 'balanced' | 'permissive' })}>
             <SelectTrigger className="h-8 text-xs bg-transparent border-white/10"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="strict" className="text-xs">Strict</SelectItem><SelectItem value="balanced" className="text-xs">Balanced</SelectItem><SelectItem value="permissive" className="text-xs">Permissive</SelectItem></SelectContent>
           </Select>
