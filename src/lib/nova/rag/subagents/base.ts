@@ -9,12 +9,18 @@ export interface SubagentDefinition {
   execute(query: string, signal: AbortSignal): Promise<SubagentResult>;
 }
 
-let _zai: { functions?: { invoke: (name: string, params: Record<string, unknown>) => Promise<unknown> } } | null = null;
-export async function getZAI() {
+interface ZAIInstance {
+  functions?: { invoke: (name: string, params: Record<string, unknown>) => Promise<unknown> };
+}
+
+let _zai: ZAIInstance | null = null;
+
+export async function getZAI(): Promise<ZAIInstance | null> {
   if (_zai) return _zai;
   try {
     const ZAI = (await import('z-ai-web-dev-sdk')).default;
-    _zai = await ZAI.create() as typeof _zai;
+    // Cast through unknown to avoid type overlap error with null
+    _zai = (await ZAI.create()) as unknown as ZAIInstance;
     return _zai;
   } catch { return null; }
 }
