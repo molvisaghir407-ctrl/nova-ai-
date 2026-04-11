@@ -1,7 +1,11 @@
 import type { QueryIntent } from '@/types/nova.types';
-import { makeAgent, zaiSearch } from './base';
+import { makeAgent } from './base';
+import { webSearch } from '@/lib/nova/search';
 export default makeAgent({
-  id: '04-stackoverflow', name: 'Stack Overflow', priority: 4, timeout: 5000,
+  id: '04-stackoverflow', name: 'Stack Overflow', priority: 4, timeout: 6000,
   shouldActivate: (_q: string, intent: QueryIntent) => intent === 'code',
-  run: (query) => zaiSearch(`${query} site:stackoverflow.com`, 5),
+  run: async (query) => {
+    const results = await webSearch(`${query} site:stackoverflow.com`, 5);
+    return results.map((r, i) => ({ ...r, id: i + 1 }));
+  },
 });

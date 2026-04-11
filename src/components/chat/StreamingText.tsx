@@ -9,12 +9,10 @@ interface StreamingTextProps {
   isStreaming: boolean;
 }
 
-const MarkdownComponents: Components = {
+const MD: Components = {
   code({ className, children, ...props }) {
     const lang = (className ?? '').replace('language-', '');
-    if (!className) {
-      return <code className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-xs text-violet-300" {...props}>{children}</code>;
-    }
+    if (!className) return <code className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-xs text-violet-300" {...props}>{children}</code>;
     return <CodeBlock language={lang}>{String(children).replace(/\n$/, '')}</CodeBlock>;
   },
   table: ({ children }) => <div className="overflow-x-auto my-3"><table className="w-full text-xs border-collapse">{children}</table></div>,
@@ -30,70 +28,91 @@ const MarkdownComponents: Components = {
   p: ({ children }) => <p className="my-1.5 leading-7">{children}</p>,
 };
 
-// DeepSeek-style: renders words one by one with staggered animation
-// Uses direct DOM writes during streaming, full ReactMarkdown after done
+/**
+ * Smooth streaming text renderer:
+ * 
+ * DURING streaming:
+ *   - Renders raw text with a blinking cursor (no markdown parsing = no layout shift)
+ *   - New characters appended via direct DOM write (zero React re-render per token)
+ *   - Word-by-word fade-in using CSS animation
+ * 
+ * AFTER streaming done:
+ *   - Crossfades to full ReactMarkdown (opacity transition over 200ms)
+ *   - The crossfade happens ONCE at the end, not on every token
+ *   - This is the only moment bold/italic/headers appear → one smooth transition
+ */
 export const StreamingText = memo(function StreamingText({ content, isStreaming }: StreamingTextProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const rawRef = useRef<HTMLDivElement>(null);
   const prevContentRef = useRef('');
   const frameRef = useRef<number | null>(null);
-  const wordBufRef = useRef('');
-  const wordIndexRef = useRef(0);
-  const [settled, setSettled] = useState(!isStreaming);
+  const bufRef = useRef('');
+  const [done, setDone] = useState(!isStreaming);
+  const [fading, setFading] = useState(false);
 
-  // During streaming: append new text word-by-word with staggered animation
+  // Streaming: append new text directly to DOM
   useEffect(() => {
     if (!isStreaming) {
-      prevContentRef.current = content;
-      setSettled(true);
+      // Stream ended — trigger crossfade
+      if (!done) {
+        setFading(true);
+        // Small delay so the last tokens render before we switch
+        const t = setTimeout(() => setDone(true), 50);
+        return () => clearTimeout(t);
+      }
       return;
     }
 
     const newPart = content.slice(prevContentRef.current.length);
     if (!newPart) return;
     prevContentRef.current = content;
-    wordBufRef.current += newPart;
+    bufRef.current += newPart;
 
-    if (frameRef.current) return; // batch on next frame
+    if (frameRef.current) return;
 
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = null;
-      if (!containerRef.current || !wordBufRef.current) return;
+      const el = rawRef.current;
+      if (!el || !bufRef.current) return;
 
-      const text = wordBufRef.current;
-      wordBufRef.current = '';
+      const text = bufRef.current;
+      bufRef.current = '';
 
-      // Split into word+space units and animate each
+      // Append words with fade-in animation
       const tokens = text.match(/\S+\s*/g) ?? [text];
       const frag = document.createDocumentFragment();
       tokens.forEach((token, i) => {
         const span = document.createElement('span');
         span.className = 'nova-word';
-        span.style.animationDelay = `${i * 18}ms`;
+        span.style.animationDelay = `${i * 15}ms`;
         span.textContent = token;
         frag.appendChild(span);
-        wordIndexRef.current++;
       });
-      containerRef.current.appendChild(frag);
+      el.appendChild(frag);
     });
 
     return () => {
       if (frameRef.current) { cancelAnimationFrame(frameRef.current); frameRef.current = null; }
     };
-  }, [content, isStreaming]);
-
-  // When settled: switch to full markdown render
-  if (settled) {
-    return (
-      <div className="prose prose-invert prose-sm max-w-none nova-md">
-        <ReactMarkdown components={MarkdownComponents}>{content}</ReactMarkdown>
-      </div>
-    );
-  }
+  }, [content, isStreaming, done]);
 
   return (
-    <div className="text-sm leading-7 text-zinc-100">
-      <div ref={containerRef} style={{ display: 'inline' }} />
-      <span className="streaming-cursor" />
+    <div className="relative">
+      {/* Raw text layer — visible during streaming, fades out when done */}
+      {!done && (
+        <div
+          className="text-sm leading-7 text-zinc-100 transition-opacity duration-200"
+          style={{ opacity: fading ? 0 : 1 }}>
+          <div ref={rawRef} style={{ display: 'inline' }} />
+          {!fading && <span className="streaming-cursor" />}
+        </div>
+      )}
+
+      {/* Markdown layer — fades in when done, positioned on top */}
+      {done && (
+        <div className="prose prose-invert prose-sm max-w-none nova-md animate-in fade-in duration-200">
+          <ReactMarkdown components={MD}>{content}</ReactMarkdown>
+        </div>
+      )}
     </div>
   );
 });

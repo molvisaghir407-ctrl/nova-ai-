@@ -1,7 +1,11 @@
 import type { QueryIntent } from '@/types/nova.types';
-import { makeAgent, zaiSearch } from './base';
+import { makeAgent } from './base';
+import { webSearch } from '@/lib/nova/search';
 export default makeAgent({
-  id: '05-github', name: 'GitHub', priority: 5, timeout: 5000,
+  id: '05-github', name: 'GitHub', priority: 5, timeout: 6000,
   shouldActivate: (_q: string, intent: QueryIntent) => intent === 'code',
-  run: (query) => zaiSearch(`${query} site:github.com`, 4),
+  run: async (query) => {
+    const results = await webSearch(`${query} site:github.com`, 4);
+    return results.map((r, i) => ({ ...r, id: i + 1 }));
+  },
 });

@@ -1,7 +1,11 @@
 import type { QueryIntent } from '@/types/nova.types';
-import { makeAgent, zaiSearch } from './base';
+import { makeAgent } from './base';
+import { webSearch } from '@/lib/nova/search';
 export default makeAgent({
-  id: '10-reddit', name: 'Reddit Discussions', priority: 10, timeout: 5000,
-  shouldActivate: (_q: string, intent: QueryIntent) => ['general', 'code', 'factual'].includes(intent),
-  run: (query) => zaiSearch(`${query} site:reddit.com`, 4),
+  id: '10-reddit', name: 'Reddit', priority: 10, timeout: 6000,
+  shouldActivate: (_q: string, intent: QueryIntent) => ['general', 'factual'].includes(intent),
+  run: async (query) => {
+    const results = await webSearch(`${query} site:reddit.com`, 4);
+    return results.map((r, i) => ({ ...r, id: i + 1 }));
+  },
 });

@@ -1,7 +1,11 @@
 import type { QueryIntent } from '@/types/nova.types';
-import { makeAgent, zaiSearch } from './base';
+import { makeAgent } from './base';
+import { webSearch } from '@/lib/nova/search';
 export default makeAgent({
-  id: '01-web-primary', name: 'Primary Web Search', priority: 1, timeout: 5000,
+  id: '01-web-primary', name: 'Primary Web Search', priority: 1, timeout: 7000,
   shouldActivate: (_q: string, intent: QueryIntent) => !['conversational', 'creative'].includes(intent),
-  run: (query) => zaiSearch(query, 8),
+  run: async (query) => {
+    const results = await webSearch(query, 8);
+    return results.map((r, i) => ({ ...r, id: i + 1 }));
+  },
 });
