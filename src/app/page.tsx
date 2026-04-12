@@ -395,17 +395,17 @@ function EmptyState({ onPrompt }: { onPrompt: (p: string) => void }) {
 }
 
 // ── RAG status indicator ───────────────────────────────────────────────────────
-function RAGIndicator({ isSearching, sources }: { isSearching: boolean; sources: number }) {
-  if (!isSearching && sources === 0) return null;
+function RAGIndicator({ isSearching, sources, status }: { isSearching: boolean; sources: number; status: string }) {
+  const show = isSearching || sources > 0 || !!status;
+  if (!show) return null;
+  const label = status || (isSearching ? 'Searching the web...' : `${sources} sources ready`);
+  const spinning = isSearching || !!status;
   return (
     <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-      className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-900/80 border border-white/10 text-xs text-zinc-400 max-w-3xl mx-auto mb-2">
-      <Globe className={cn('w-3.5 h-3.5 text-violet-400', isSearching && 'animate-spin')} />
-      {isSearching ? (
-        <><span className="rag-scanning">Searching the web...</span>{[0, 0.15, 0.3].map(d => <span key={d} className="w-1 h-1 rounded-full bg-violet-400/60 animate-bounce" style={{ animationDelay: `${d}s` }} />)}</>
-      ) : (
-        <span className="text-violet-400">{sources} sources found</span>
-      )}
+      className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-900/80 border border-violet-500/20 text-xs text-zinc-400 max-w-3xl mx-auto mb-2">
+      <Globe className={cn('w-3.5 h-3.5 text-violet-400 shrink-0', spinning && 'animate-spin')} />
+      <span className={cn(spinning ? 'rag-scanning text-violet-400' : 'text-violet-400')}>{label}</span>
+      {spinning && [0, 0.15, 0.3].map(d => <span key={d} className="w-1 h-1 rounded-full bg-violet-400/60 animate-bounce shrink-0" style={{ animationDelay: `${d}s` }} />)}
     </motion.div>
   );
 }
@@ -426,6 +426,7 @@ export default function NovaApp() {
   const [tokenCount, setTokenCount] = useState<{ prompt: number; completion: number } | null>(null);
   const [isRAGSearching, setIsRAGSearching] = useState(false);
   const [ragSourceCount, setRAGSourceCount] = useState(0);
+  const [preflightStatus, setPreflightStatus] = useState('');
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
@@ -539,6 +540,7 @@ export default function NovaApp() {
           }
           if (evt.type === 'content') {
             setIsRAGSearching(false);
+            setPreflightStatus('');
             if (thinkingStreamingId) setThinkingStreamingId(null);
             contentAcc += evt.content;
             updateLastMessage(assistantId, contentAcc, thinkingAcc || undefined);
@@ -564,6 +566,7 @@ export default function NovaApp() {
       setStreamingId(null);
       setThinkingStreamingId(null);
       setIsRAGSearching(false);
+      setPreflightStatus('');
     }
   }, [input, selectedImages, isProcessing, sessionId, enableThinking, API_KEY, addMessage, updateLastMessage, scrollToBottom, thinkingStreamingId]);
 
@@ -709,8 +712,8 @@ export default function NovaApp() {
               {/* Input area */}
               <div className="shrink-0 border-t border-white/8 bg-zinc-900/60 px-4 py-3">
                 <AnimatePresence>
-                  {(isRAGSearching || ragSourceCount > 0) && (
-                    <RAGIndicator isSearching={isRAGSearching} sources={ragSourceCount} />
+                  {(isRAGSearching || ragSourceCount > 0 || preflightStatus) && (
+                    <RAGIndicator isSearching={isRAGSearching} sources={ragSourceCount} status={preflightStatus} />
                   )}
                 </AnimatePresence>
 
