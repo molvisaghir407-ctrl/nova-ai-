@@ -3,36 +3,47 @@ import { getTimeContext } from '@/lib/nova/personality';
 import { logger } from '@/lib/nova/logger';
 import { memoryManager } from '@/lib/nova/memory';
 import { sessionStore } from '@/lib/kv-sessions';
-import { chatStream, parseNIMStream, chatComplete } from '@/lib/nova/nim/client';
-import { routeTask, classifyTask } from '@/lib/nova/nim/models';
+import { streamWithFallback, type StreamWithFallbackOptions } from '@/lib/nova/providers/client';
 import { classifyIntent, shouldUseRAG } from '@/lib/nova/rag/intent';
 import { runRAGPipeline, buildRichContext } from '@/lib/nova/rag/pipeline';
 import type { NIMChatMessage } from '@/types/nvidia.types';
 import type { StreamEvent, Source } from '@/types/nova.types';
+import type { TaskType } from '@/lib/nova/providers/registry';
 
-const NOVA_SYSTEM = `You are Nova — an exceptionally intelligent AI assistant powered by NVIDIA NIM.
+const NOVA_SYSTEM = `You are Nova — an exceptionally intelligent AI assistant.
 
 ## Core Principles
-- **Complete**: Never truncate. Every question deserves a thorough answer.
-- **Accurate**: When using web research, cite sources as [1], [2], etc. Distinguish facts from inferences.
-- **Structured**: Use headings, bullets, tables, and code blocks for clarity.
-- **Code**: Always use language-fenced blocks. Write complete, working examples.
-- **Honest**: Acknowledge uncertainty. Never hallucinate facts.
+- **Complete**: Never truncate. Every question deserves a thorough, complete answer.
+- **Accurate**: Cite sources as [1], [2] etc. when using web research. Distinguish facts from inference.
+- **Structured**: Use ## headings, bullets, tables, and code blocks for clarity.
+- **Code**: Always use language-fenced blocks. Write complete, working, runnable examples.
+- **Honest**: Acknowledge uncertainty. Never hallucinate.
 
-## Response Style
-- **Bold** key concepts. Use > blockquotes for important callouts.
+## Format
+- **Bold** key concepts. > blockquotes for callouts.
 - \`inline code\` for terms, paths, function names.
-- Tables for comparisons. Numbered lists for steps.`;
+- Tables for comparisons. Numbered lists for steps.
+- Code: complete examples in fenced \`\`\`language blocks.`;
 
 function generateTitle(msg: string): string {
   const c = msg.trim().replace(/\n+/g, ' ');
   return c.length > 52 ? c.slice(0, 49) + '...' : c;
 }
 
-/** 
- * Pre-flight container: gather ALL data in parallel before calling NIM.
- * Returns everything needed to build the richest possible system prompt.
- */
+// Map message content to task type
+function detectTask(message: string, hasImages: boolean, enableThinking: boolean): TaskType {
+  if (enableThinking) return 'thinking';
+  if (hasImages) return 'vision';
+  const lower = message.toLowerCase();
+  if (/\b(math|equation|solve|calculate|integral|derivative|proof|theorem)\b/.test(lower)) return 'math';
+  if (/\b(code|function|class|implement|debug|bug|typescript|python|javascript|rust|golang|npm)\b/.test(lower)) return 'code';
+  if (/\b(analyze|analyse|review|compare|evaluate|assess|research)\b/.test(lower)) return 'analysis';
+  if (/\b(summarize|summary|tldr|brief|recap)\b/.test(lower)) return 'summarize';
+  if (message.length > 1500) return 'long_context';
+  if (/\b(hi|hello|hey|thanks|what is|tell me)\b/.test(lower) && message.length < 80) return 'fast';
+  return 'general';
+}
+
 async function buildPreflightContainer(
   message: string,
   sessionKey: string,
@@ -44,12 +55,11 @@ async function buildPreflightContainer(
   systemPrompt: string;
   ragSources: Source[];
   ragUsed: boolean;
-  ragDurationMs: number;
 }> {
   const intent = classifyIntent(message);
   const needRAG = enableRAG && message.length > 0 && shouldUseRAG(intent, message.length, ragThreshold);
 
-  // 🚀 Fire everything in parallel — history, memory, AND RAG simultaneously
+  // Fire everything in parallel
   const [historyResult, memResult, ragResult] = await Promise.allSettled([
     sessionStore.get(sessionKey),
     includeContext ? memoryManager.buildContextPrompt(6) : Promise.resolve(''),
@@ -60,9 +70,8 @@ async function buildPreflightContainer(
   const memCtx = memResult.status === 'fulfilled' ? memResult.value : '';
   const ragPackage = ragResult.status === 'fulfilled' ? ragResult.value : null;
 
-  // Assemble system prompt with all gathered context
   let systemPrompt = NOVA_SYSTEM;
-  if (includeContext) systemPrompt += `\n\n[Current time: ${getTimeContext()}]`;
+  if (includeContext) systemPrompt += `\n\n[Time: ${getTimeContext()}]`;
   if (memCtx) systemPrompt += memCtx;
   if (ragPackage?.sources.length) systemPrompt += buildRichContext(ragPackage);
 
@@ -71,7 +80,6 @@ async function buildPreflightContainer(
     systemPrompt,
     ragSources: ragPackage?.sources ?? [],
     ragUsed: (ragPackage?.sources.length ?? 0) > 0,
-    ragDurationMs: ragPackage?.durationMs ?? 0,
   };
 }
 
@@ -87,10 +95,9 @@ export async function POST(req: NextRequest) {
 
     const {
       message = '', sessionId, images = [],
-      enableThinking = false, stream = true,
-      maxTokens = 16000, clearSession = false,
-      includeContext = true, userId = 'default',
-      enableRAG = true, ragThreshold = 100,
+      enableThinking = false, maxTokens = 16000,
+      clearSession = false, includeContext = true,
+      userId = 'default', enableRAG = true, ragThreshold = 100,
     } = body;
 
     if (!message && images.length === 0) {
@@ -104,25 +111,16 @@ export async function POST(req: NextRequest) {
       return Response.json({ success: true, cleared: true });
     }
 
-    logger.info('chat', `Preflight start`, { len: message.length, rag: enableRAG, thinking: enableThinking });
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // PRE-FLIGHT CONTAINER: gather EVERYTHING in parallel before NIM call
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── PRE-FLIGHT: load everything in parallel ───────────────────────────
     const preflight = await buildPreflightContainer(
       message, sessionKey, includeContext, enableRAG, ragThreshold,
     );
     const preflightMs = Date.now() - startTime;
-    logger.info('chat', `Preflight done in ${preflightMs}ms`, { ragSources: preflight.ragSources.length, ragMs: preflight.ragDurationMs });
 
     let history = preflight.history;
     const isNew = history.length === 0;
 
-    // Route to best model
-    const nimTask = classifyTask(message, images.length > 0, enableThinking);
-    const model = body.model ?? routeTask(nimTask);
-
-    // Build the user message
+    // Build user message
     const userContent: NIMChatMessage['content'] = images.length > 0
       ? [...(message ? [{ type: 'text' as const, text: message }] : []), ...images.map(url => ({ type: 'image_url' as const, image_url: { url } }))]
       : message;
@@ -130,43 +128,30 @@ export async function POST(req: NextRequest) {
     history.push({ role: 'user', content: userContent });
     if (history.length > 120) history = history.slice(-120);
 
-    // Build NIM messages with FULL context already loaded
     const nimMessages: NIMChatMessage[] = [
       { role: 'system', content: preflight.systemPrompt },
-      ...history.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      ...history.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     ];
 
-    const nimOpts = {
-      model,
+    // Detect task for optimal model routing
+    const task = detectTask(message, images.length > 0, enableThinking);
+
+    const providerOpts: StreamWithFallbackOptions = {
       messages: nimMessages,
-      stream: true as const,
-      max_tokens: maxTokens,
+      task,
+      maxTokens,
       temperature: 0.6,
-      top_p: 0.95,
-      ...(enableThinking ? { thinking: { type: 'enabled' as const, budget_tokens: 8000 } } : {}),
+      enableThinking,
+      hasVision: images.length > 0,
+      preferredModel: body.model,
     };
 
-    logger.info('chat', `→ NIM ${model}`, { task: nimTask, contextLen: preflight.systemPrompt.length });
+    logger.info('chat', `Preflight ${preflightMs}ms → ${task}`, { rag: preflight.ragUsed });
 
-    if (!stream) {
-      const { stream: _omit, ...nimOptsNoStream } = nimOpts;
-      const result = await chatComplete(nimOptsNoStream);
-      history.push({ role: 'assistant', content: result.content });
-      await Promise.all([
-        sessionStore.set(sessionKey, history),
-        isNew ? sessionStore.upsertConversation(userId, { id: sessionKey, title: generateTitle(message), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messageCount: history.length, preview: message.slice(0, 80) }) : Promise.resolve(),
-      ]);
-      return Response.json({ success: true, response: result.content, thinking: result.thinking || null, sessionId: sessionKey, duration: Date.now() - startTime, ragSources: preflight.ragSources, ragUsed: preflight.ragUsed });
-    }
+    // ── STREAMING with automatic fallback ────────────────────────────────
+    const { stream, modelUsed, providerUsed, fallbackLevel } = await streamWithFallback(providerOpts);
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // STREAMING: All context is ready — NIM can stream at FULL speed
-    // ─────────────────────────────────────────────────────────────────────────
-    const nimResponse = await chatStream(nimOpts);
-    if (!nimResponse.ok) {
-      const errText = await nimResponse.text();
-      throw new Error(`NIM ${nimResponse.status}: ${errText.slice(0, 300)}`);
-    }
+    logger.info('chat', `Streaming via ${modelUsed.displayName} (${providerUsed}, fallback=${fallbackLevel})`);
 
     const encoder = new TextEncoder();
     let fullContent = '', fullThinking = '';
@@ -176,19 +161,19 @@ export async function POST(req: NextRequest) {
         const send = (obj: StreamEvent) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
 
         try {
-          // Immediately emit preflight metadata so UI can show sources
+          // Send RAG sources immediately
           if (preflight.ragSources.length > 0) {
             send({ type: 'rag', sources: preflight.ragSources, searchQuery: message });
           }
 
-          // Stream tokens — everything is already in context so this is fast
-          for await (const event of parseNIMStream(nimResponse)) {
+          // Stream tokens from whichever provider responded
+          for await (const event of stream) {
             if (event.type === 'thinking') { fullThinking += event.content; send(event); }
             else if (event.type === 'content') { fullContent += event.content; send(event); }
             else if (event.type === 'usage') { send(event); }
           }
 
-          // Save history + memory async (after response is streaming, non-blocking)
+          // Save state async
           if (fullContent) {
             history.push({ role: 'assistant', content: fullContent });
             if (history.length > 120) history = history.slice(-120);
@@ -200,7 +185,6 @@ export async function POST(req: NextRequest) {
                 createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
                 messageCount: history.length, preview: message.slice(0, 80),
               }) : Promise.resolve(),
-              // Memory store is fully async — never blocks response
               (async () => {
                 try {
                   if (message.length > 20) {
@@ -219,7 +203,7 @@ export async function POST(req: NextRequest) {
             messageCount: history.length,
             ragSources: preflight.ragSources,
             ragUsed: preflight.ragUsed,
-          });
+          } as StreamEvent & { modelUsed?: string; providerUsed?: string });
           controller.close();
         } catch (err) {
           send({ type: 'error', message: err instanceof Error ? err.message : 'Stream failed', code: 'STREAM_ERROR' });
@@ -234,6 +218,9 @@ export async function POST(req: NextRequest) {
         'Cache-Control': 'no-cache, no-transform',
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no',
+        'X-Model-Used': modelUsed.displayName,
+        'X-Provider-Used': providerUsed,
+        'X-Fallback-Level': String(fallbackLevel),
         'X-Preflight-Ms': String(preflightMs),
       },
     });
