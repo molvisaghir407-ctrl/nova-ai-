@@ -81,58 +81,71 @@
 * { border-color: var(--border); }
 body { background: var(--background); color: var(--foreground); }
 
-/* ── DeepSeek-style streaming cursor ─────────────────────────────────────────── */
-.streaming-cursor {
+/* ══════════════════════════════════════════════════════════════
+   CLAUDE-STYLE STREAMING CURSOR
+   A thin vertical blinking bar, appears right after last char
+══════════════════════════════════════════════════════════════ */
+.claude-cursor {
   display: inline-block;
   width: 2px;
   height: 1.1em;
-  background: rgba(167,139,250,0.9);
+  background-color: rgba(167, 139, 250, 0.85);  /* violet-400 */
   border-radius: 1px;
-  margin-left: 2px;
   vertical-align: text-bottom;
-  animation: cursor-blink 0.75s step-end infinite;
-}
-@keyframes cursor-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
-
-/* ── DeepSeek-style word-by-word fade-in ─────────────────────────────────────── */
-.nova-word {
-  display: inline;
-  animation: word-in 0.14s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-@keyframes word-in {
-  from { opacity: 0; transform: translateY(3px); }
-  to   { opacity: 1; transform: translateY(0); }
+  margin-left: 1px;
+  animation: claude-blink 0.55s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* ── Thinking animations ──────────────────────────────────────────────────────── */
+@keyframes claude-blink {
+  0%, 45%  { opacity: 1; }
+  55%, 100% { opacity: 0; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   NOVA MARKDOWN — clean, readable prose
+══════════════════════════════════════════════════════════════ */
+.nova-md { max-width: none !important; }
+.nova-md > *:first-child { margin-top: 0 !important; }
+.nova-md > *:last-child { margin-bottom: 0 !important; }
+.nova-md p { margin: 0.45em 0; line-height: 1.75; }
+.nova-md pre { margin: 0 !important; background: transparent !important; padding: 0 !important; }
+.nova-md code:not(pre code) { font-size: 0.8em !important; }
+
+/* ══════════════════════════════════════════════════════════════
+   THINKING BLOCK ANIMATIONS
+══════════════════════════════════════════════════════════════ */
 @keyframes orbit-1 {
-  from { transform: rotate(0deg)   translateX(16px) rotate(0deg); }
-  to   { transform: rotate(360deg) translateX(16px) rotate(-360deg); }
+  from { transform: rotate(0deg)   translateX(14px) rotate(0deg); }
+  to   { transform: rotate(360deg) translateX(14px) rotate(-360deg); }
 }
 @keyframes orbit-2 {
-  from { transform: rotate(120deg)  translateX(16px) rotate(-120deg); }
-  to   { transform: rotate(480deg)  translateX(16px) rotate(-480deg); }
+  from { transform: rotate(120deg)  translateX(14px) rotate(-120deg); }
+  to   { transform: rotate(480deg)  translateX(14px) rotate(-480deg); }
 }
 @keyframes orbit-3 {
-  from { transform: rotate(240deg)  translateX(16px) rotate(-240deg); }
-  to   { transform: rotate(600deg)  translateX(16px) rotate(-600deg); }
+  from { transform: rotate(240deg)  translateX(14px) rotate(-240deg); }
+  to   { transform: rotate(600deg)  translateX(14px) rotate(-600deg); }
 }
-.orbit-dot-1 { animation: orbit-1 1.5s linear infinite; }
-.orbit-dot-2 { animation: orbit-2 1.5s linear infinite; }
-.orbit-dot-3 { animation: orbit-3 1.5s linear infinite; }
+.orbit-dot-1 { animation: orbit-1 1.4s linear infinite; }
+.orbit-dot-2 { animation: orbit-2 1.4s linear infinite; }
+.orbit-dot-3 { animation: orbit-3 1.4s linear infinite; }
 
 @keyframes think-glow {
   0%, 100% { box-shadow: 0 0 0 0 rgba(139,92,246,0); }
-  50%       { box-shadow: 0 0 20px 4px rgba(139,92,246,0.18); }
+  50%       { box-shadow: 0 0 20px 4px rgba(139,92,246,0.15); }
 }
 .thinking-glow { animation: think-glow 2s ease-in-out infinite; }
 
 @keyframes shimmer {
   0%   { background-position: -200% center; }
-  100% { background-position: 200% center; }
+  100% { background-position:  200% center; }
 }
 .thinking-shimmer {
-  background: linear-gradient(90deg, rgba(167,139,250,0.2) 25%, rgba(167,139,250,0.7) 50%, rgba(167,139,250,0.2) 75%);
+  background: linear-gradient(90deg,
+    rgba(167,139,250,0.2) 25%,
+    rgba(167,139,250,0.8) 50%,
+    rgba(167,139,250,0.2) 75%
+  );
   background-size: 200% auto;
   animation: shimmer 1.8s linear infinite;
   -webkit-background-clip: text;
@@ -140,37 +153,57 @@ body { background: var(--background); color: var(--foreground); }
   background-clip: text;
 }
 
-/* ── Nova markdown prose ──────────────────────────────────────────────────────── */
-.nova-md { max-width: none !important; }
-.nova-md p { margin: 0.5em 0; line-height: 1.75; }
-.nova-md ul, .nova-md ol { margin: 0.5em 0; }
-.nova-md h1, .nova-md h2, .nova-md h3 { margin: 0.8em 0 0.4em; }
-.nova-md pre { margin: 0 !important; background: transparent !important; padding: 0 !important; }
-.nova-md code:not(pre code) { font-size: 0.8em !important; }
-
-/* ── Source pills stagger animation ──────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   SOURCE PILLS
+══════════════════════════════════════════════════════════════ */
 @keyframes source-in {
-  from { opacity: 0; transform: translateY(5px) scale(0.95); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(4px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
 }
-.source-pill { animation: source-in 0.25s ease-out both; }
+.source-pill { animation: source-in 0.22s ease-out both; }
 
-/* ── Scrollbar ───────────────────────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 999px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
-
-/* ── Message entry animation ─────────────────────────────────────────────────── */
-@keyframes msg-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.nova-msg { animation: msg-in 0.18s ease-out both; }
-
-/* ── RAG progress bar ────────────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   RAG PULSE
+══════════════════════════════════════════════════════════════ */
 @keyframes rag-pulse {
-  0%, 100% { opacity: 0.6; }
+  0%, 100% { opacity: 0.5; }
   50%       { opacity: 1; }
 }
 .rag-scanning { animation: rag-pulse 1.2s ease-in-out infinite; }
+
+/* ══════════════════════════════════════════════════════════════
+   SCROLLBAR
+══════════════════════════════════════════════════════════════ */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.09); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.16); }
+
+/* ══════════════════════════════════════════════════════════════
+   ORDERED LIST COUNTER (Claude-style numbered bullets)
+══════════════════════════════════════════════════════════════ */
+.nova-md ol {
+  counter-reset: nova-ol;
+  list-style: none;
+  padding-left: 0;
+}
+.nova-md ol > li {
+  counter-increment: nova-ol;
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+}
+.nova-md ol > li::before {
+  content: counter(nova-ol) ".";
+  color: rgba(167,139,250,0.7);
+  font-size: 0.8em;
+  font-weight: 600;
+  min-width: 1.2em;
+  margin-top: 0.35em;
+  flex-shrink: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   STREAMING ROOT — prevents width collapse during stream
+══════════════════════════════════════════════════════════════ */
+.nova-streaming-root { min-height: 1.4em; }

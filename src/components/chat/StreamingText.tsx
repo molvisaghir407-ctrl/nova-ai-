@@ -1,6 +1,7 @@
 'use client';
-import { useRef, useEffect, useState, memo } from 'react';
+import { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { CodeBlock } from './CodeBlock';
 import type { Components } from 'react-markdown';
 
@@ -9,111 +10,120 @@ interface StreamingTextProps {
   isStreaming: boolean;
 }
 
+// ── Markdown component map ────────────────────────────────────────────────────
+// Same rendering for both streaming and settled — no transition needed
 const MD: Components = {
   code({ className, children, ...props }) {
     const lang = (className ?? '').replace('language-', '');
-    if (!className) return <code className="px-1.5 py-0.5 rounded bg-white/10 font-mono text-xs text-violet-300" {...props}>{children}</code>;
+    if (!className) {
+      return (
+        <code
+          className="px-1.5 py-0.5 rounded-md bg-zinc-800 font-mono text-[0.8em] text-violet-300 border border-white/8"
+          {...props}
+        >
+          {children}
+        </code>
+      );
+    }
     return <CodeBlock language={lang}>{String(children).replace(/\n$/, '')}</CodeBlock>;
   },
-  table: ({ children }) => <div className="overflow-x-auto my-3"><table className="w-full text-xs border-collapse">{children}</table></div>,
-  th: ({ children }) => <th className="border border-white/20 px-3 py-2 text-left bg-white/10 font-semibold">{children}</th>,
-  td: ({ children }) => <td className="border border-white/10 px-3 py-2">{children}</td>,
-  blockquote: ({ children }) => <blockquote className="border-l-2 border-violet-500 pl-3 my-2 text-zinc-400 italic">{children}</blockquote>,
-  h1: ({ children }) => <h1 className="text-xl font-bold mt-5 mb-3">{children}</h1>,
-  h2: ({ children }) => <h2 className="text-base font-bold mt-4 mb-2 text-zinc-200">{children}</h2>,
-  h3: ({ children }) => <h3 className="text-sm font-semibold mt-3 mb-1 text-zinc-300">{children}</h3>,
-  ul: ({ children }) => <ul className="list-disc list-outside pl-5 space-y-1 my-2">{children}</ul>,
-  ol: ({ children }) => <ol className="list-decimal list-outside pl-5 space-y-1 my-2">{children}</ol>,
-  a: ({ href, children }) => <a href={href ?? '#'} target="_blank" rel="noopener noreferrer" className="text-violet-400 hover:text-violet-300 underline underline-offset-2">{children}</a>,
-  p: ({ children }) => <p className="my-1.5 leading-7">{children}</p>,
+  // Tables
+  table: ({ children }) => (
+    <div className="overflow-x-auto my-4 rounded-xl border border-white/10">
+      <table className="w-full text-sm border-collapse">{children}</table>
+    </div>
+  ),
+  thead: ({ children }) => <thead className="bg-white/5">{children}</thead>,
+  th: ({ children }) => (
+    <th className="border-b border-white/10 px-4 py-2.5 text-left text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="border-b border-white/6 px-4 py-2.5 text-sm text-zinc-200">{children}</td>
+  ),
+  tr: ({ children }) => <tr className="hover:bg-white/3 transition-colors">{children}</tr>,
+  // Blockquote
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-[3px] border-violet-500/60 pl-4 my-3 text-zinc-400 italic bg-violet-500/5 py-1 rounded-r-lg">
+      {children}
+    </blockquote>
+  ),
+  // Headings
+  h1: ({ children }) => (
+    <h1 className="text-2xl font-bold mt-6 mb-3 text-white border-b border-white/10 pb-2">{children}</h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="text-lg font-bold mt-5 mb-2.5 text-zinc-100">{children}</h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="text-base font-semibold mt-4 mb-2 text-zinc-200">{children}</h3>
+  ),
+  h4: ({ children }) => (
+    <h4 className="text-sm font-semibold mt-3 mb-1 text-zinc-300">{children}</h4>
+  ),
+  // Lists
+  ul: ({ children }) => (
+    <ul className="list-none pl-0 space-y-1 my-2.5">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="list-none pl-0 space-y-1 my-2.5 counter-reset-[item]">{children}</ol>
+  ),
+  li: ({ children, ...props }) => (
+    <li className="flex gap-2.5 leading-7 text-zinc-200" {...props}>
+      <span className="mt-[0.35em] w-1.5 h-1.5 rounded-full bg-violet-400/70 shrink-0 leading-none" aria-hidden />
+      <span className="flex-1 min-w-0">{children}</span>
+    </li>
+  ),
+  // Links
+  a: ({ href, children }) => (
+    <a
+      href={href ?? '#'}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-violet-400 hover:text-violet-300 underline underline-offset-2 decoration-violet-400/40 hover:decoration-violet-300/60 transition-colors"
+    >
+      {children}
+    </a>
+  ),
+  // Paragraphs
+  p: ({ children }) => <p className="my-2 leading-7 text-zinc-100">{children}</p>,
+  // Horizontal rule
+  hr: () => <hr className="my-4 border-white/10" />,
+  // Strong / em
+  strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+  em: ({ children }) => <em className="italic text-zinc-300">{children}</em>,
 };
 
 /**
- * Two-phase renderer:
+ * Claude-style streaming renderer.
  *
- * Phase 1 (streaming): Direct DOM writes, zero React re-renders.
- *   - New characters batched every 16ms (one animation frame).
- *   - Word-by-word fade-in via CSS animation.
- *   - NO markdown parsing during streaming → zero layout shift.
- *   - Blinking cursor at end of text.
- *
- * Phase 2 (settled): Single opacity crossfade to ReactMarkdown.
- *   - Happens ONCE, 50ms after stream ends.
- *   - Bold/italic/code blocks appear exactly once, in one smooth transition.
+ * Key differences from DeepSeek-style:
+ *  - Markdown is rendered LIVE during streaming — bold, headers, bullets appear
+ *    as soon as the closing syntax arrives (e.g. ** closes bold)
+ *  - NO plain-text intermediate phase — no layout shift or "flash" at end
+ *  - React re-renders on each token batch (fast with memo + remark-gfm)
+ *  - Blinking cursor appended as a sibling span inside the last rendered element
+ *  - When done: cursor disappears, content stays exactly as-is
  */
 export const StreamingText = memo(function StreamingText({ content, isStreaming }: StreamingTextProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const prevLenRef = useRef(0);
-  const rafRef = useRef<number | null>(null);
-  const bufRef = useRef('');
-  const [phase, setPhase] = useState<'streaming' | 'fading' | 'settled'>(
-    isStreaming ? 'streaming' : 'settled'
-  );
-
-  useEffect(() => {
-    if (!isStreaming) {
-      // Stream ended → short delay then crossfade to ReactMarkdown
-      if (phase === 'streaming') {
-        setPhase('fading');
-        const t = setTimeout(() => setPhase('settled'), 200);
-        return () => clearTimeout(t);
-      }
-      return;
-    }
-
-    // Accumulate new chars into buffer
-    const newChars = content.slice(prevLenRef.current);
-    if (!newChars) return;
-    prevLenRef.current = content.length;
-    bufRef.current += newChars;
-
-    // Batch writes on next animation frame (prevents multiple reflows per second)
-    if (rafRef.current) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null;
-      const el = containerRef.current;
-      if (!el || !bufRef.current) return;
-
-      const text = bufRef.current;
-      bufRef.current = '';
-
-      // Split by word boundaries and animate each word in
-      const tokens = text.match(/\S+\s*/g) ?? [text];
-      const frag = document.createDocumentFragment();
-      tokens.forEach((tok, i) => {
-        const span = document.createElement('span');
-        span.className = 'nova-word';
-        // Stagger: first few words animate in immediately, rest have slight delay
-        span.style.animationDelay = i < 3 ? '0ms' : `${(i - 2) * 12}ms`;
-        span.textContent = tok;
-        frag.appendChild(span);
-      });
-      el.appendChild(frag);
-    });
-
-    return () => {
-      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-    };
-  }, [content, isStreaming, phase]);
-
   return (
-    <div className="relative min-h-[1.5em]">
-      {/* Raw text layer */}
-      {phase !== 'settled' && (
-        <div
-          className="text-sm leading-7 text-zinc-100 transition-opacity duration-200"
-          style={{ opacity: phase === 'fading' ? 0 : 1, pointerEvents: 'none' }}
-        >
-          <div ref={containerRef} style={{ display: 'inline' }} />
-          {phase === 'streaming' && <span className="streaming-cursor" />}
-        </div>
-      )}
-      {/* Markdown layer — fades in when settled */}
-      {phase === 'settled' && (
-        <div className="prose prose-invert prose-sm max-w-none nova-md animate-in fade-in duration-150">
-          <ReactMarkdown components={MD}>{content}</ReactMarkdown>
-        </div>
-      )}
+    <div className="nova-streaming-root text-sm leading-7">
+      {/* 
+        Render markdown live. remark-gfm adds tables, strikethrough, task lists.
+        memo ensures we only re-render when content or isStreaming changes.
+      */}
+      <div className="prose prose-invert prose-sm max-w-none nova-md">
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD}>
+          {content}
+        </ReactMarkdown>
+      </div>
+
+      {/* Blinking cursor — positioned after all content, only while streaming */}
+      {isStreaming && <span className="claude-cursor" aria-hidden />}
     </div>
   );
-});
+}, (prev, next) =>
+  // Custom comparator: skip re-render only if BOTH content AND isStreaming are unchanged
+  prev.content === next.content && prev.isStreaming === next.isStreaming
+);
