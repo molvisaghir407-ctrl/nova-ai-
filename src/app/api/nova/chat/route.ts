@@ -4,46 +4,67 @@ import { logger } from '@/lib/nova/logger';
 import { memoryManager } from '@/lib/nova/memory';
 import { sessionStore } from '@/lib/kv-sessions';
 import { streamWithFallback, type StreamWithFallbackOptions } from '@/lib/nova/providers/client';
-import { classifyIntent, shouldUseRAG } from '@/lib/nova/rag/intent';
+import { classifyIntent, shouldUseRAG, assessComplexity } from '@/lib/nova/rag/intent';
 import { runRAGPipeline, buildRichContext } from '@/lib/nova/rag/pipeline';
 import type { NIMChatMessage } from '@/types/nvidia.types';
 import type { StreamEvent, Source } from '@/types/nova.types';
 import type { TaskType } from '@/lib/nova/providers/registry';
 
-const NOVA_SYSTEM = `You are Nova — an exceptionally intelligent AI assistant.
+// ── System prompt ─────────────────────────────────────────────────────────────
+const NOVA_SYSTEM = `You are Nova — an exceptionally intelligent, adaptive AI assistant built on Kimi K2 via NVIDIA NIM.
 
-## Core Principles
-- **Complete**: Never truncate. Every question deserves a thorough, complete answer.
-- **Accurate**: Cite sources as [1], [2] etc. when using web research. Distinguish facts from inference.
-- **Structured**: Use ## headings, bullets, tables, and code blocks for clarity.
-- **Code**: Always use language-fenced blocks. Write complete, working, runnable examples.
-- **Honest**: Acknowledge uncertainty. Never hallucinate.
+## Core Identity
+- Name: Nova · Model: Kimi K2 Instruct · Context: 128k tokens
+- Personality: Precise, proactive, witty, genuinely helpful
 
-## Format
-- **Bold** key concepts. > blockquotes for callouts.
-- \`inline code\` for terms, paths, function names.
-- Tables for comparisons. Numbered lists for steps.
-- Code: complete examples in fenced \`\`\`language blocks.`;
+## Response Quality Standards
+- **Complete**: Never truncate. Every question deserves a thorough answer.
+- **Accurate**: When using web research, cite sources inline as [1], [2], etc. Clearly distinguish facts from inference.
+- **Adaptive**: Match the response depth to the query complexity. One-liners for simple questions; deep dives for complex ones.
+- **Structured**: Use ## headings, bullets, tables, and code blocks for clarity — but only when they genuinely help.
+- **Code**: Always use language-fenced \`\`\`language blocks. Write complete, runnable examples with clear explanations.
+- **Honest**: Acknowledge uncertainty. Say "I'm not sure" rather than hallucinate.
+
+## Formatting Guidelines
+- **Bold** key concepts, terms, and critical information.
+- > Blockquotes for important callouts, warnings, or quotes.
+- \`inline code\` for terms, paths, filenames, commands, function names.
+- Tables for structured comparisons (3+ items with multiple attributes).
+- Numbered lists for sequential steps. Bullets for unordered collections.
+- Code fences: always specify language for syntax highlighting.
+- Avoid excessive headers for short responses — use them only when content is long enough to benefit from navigation.
+
+## Conversational Style
+- Be direct and confident. Lead with the answer, then explain.
+- Light wit where appropriate; never forced or excessive.
+- For follow-up questions, be concise — you already have context.
+- Acknowledge emotional content with empathy before diving into solutions.`;
 
 function generateTitle(msg: string): string {
   const c = msg.trim().replace(/\n+/g, ' ');
   return c.length > 52 ? c.slice(0, 49) + '...' : c;
 }
 
-// Map message content to task type
-function detectTask(message: string, hasImages: boolean, enableThinking: boolean): TaskType {
+// ── Smart task type mapping for optimal model routing ─────────────────────────
+function detectTask(message: string, hasImages: boolean, enableThinking: boolean, intent: string): TaskType {
   if (enableThinking) return 'thinking';
   if (hasImages) return 'vision';
   const lower = message.toLowerCase();
-  if (/\b(math|equation|solve|calculate|integral|derivative|proof|theorem)\b/.test(lower)) return 'math';
-  if (/\b(code|function|class|implement|debug|bug|typescript|python|javascript|rust|golang|npm)\b/.test(lower)) return 'code';
-  if (/\b(analyze|analyse|review|compare|evaluate|assess|research)\b/.test(lower)) return 'analysis';
+
+  // Map enriched intent → task type
+  if (intent === 'math') return 'math';
+  if (intent === 'code' || intent === 'howto') return 'code';
+  if (['science', 'medical', 'legal', 'history', 'comparison'].includes(intent)) return 'analysis';
+  if (intent === 'creative') return 'general';
+
+  // Fallback pattern matching
   if (/\b(summarize|summary|tldr|brief|recap)\b/.test(lower)) return 'summarize';
-  if (message.length > 1500) return 'long_context';
+  if (message.length > 2000) return 'long_context';
   if (/\b(hi|hello|hey|thanks|what is|tell me)\b/.test(lower) && message.length < 80) return 'fast';
   return 'general';
 }
 
+// ── Pre-flight: load all context in parallel ──────────────────────────────────
 async function buildPreflightContainer(
   message: string,
   sessionKey: string,
@@ -55,11 +76,14 @@ async function buildPreflightContainer(
   systemPrompt: string;
   ragSources: Source[];
   ragUsed: boolean;
+  ragDurationMs?: number;
 }> {
   const intent = classifyIntent(message);
+  const complexity = assessComplexity(message, intent);
   const needRAG = enableRAG && message.length > 0 && shouldUseRAG(intent, message.length, ragThreshold);
 
-  // Fire everything in parallel
+  logger.info('chat', `Intent: ${intent} | Complexity: ${complexity} | RAG: ${needRAG}`);
+
   const [historyResult, memResult, ragResult] = await Promise.allSettled([
     sessionStore.get(sessionKey),
     includeContext ? memoryManager.buildContextPrompt(6) : Promise.resolve(''),
@@ -67,7 +91,7 @@ async function buildPreflightContainer(
   ]);
 
   const history = historyResult.status === 'fulfilled' ? historyResult.value : [];
-  const memCtx = memResult.status === 'fulfilled' ? memResult.value : '';
+  const memCtx  = memResult.status === 'fulfilled' ? memResult.value : '';
   const ragPackage = ragResult.status === 'fulfilled' ? ragResult.value : null;
 
   let systemPrompt = NOVA_SYSTEM;
@@ -80,9 +104,11 @@ async function buildPreflightContainer(
     systemPrompt,
     ragSources: ragPackage?.sources ?? [],
     ragUsed: (ragPackage?.sources.length ?? 0) > 0,
+    ragDurationMs: ragPackage?.durationMs,
   };
 }
 
+// ── POST /api/nova/chat ───────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
   try {
@@ -111,7 +137,7 @@ export async function POST(req: NextRequest) {
       return Response.json({ success: true, cleared: true });
     }
 
-    // ── PRE-FLIGHT: load everything in parallel ───────────────────────────
+    // ── Pre-flight ──────────────────────────────────────────────────────────
     const preflight = await buildPreflightContainer(
       message, sessionKey, includeContext, enableRAG, ragThreshold,
     );
@@ -122,7 +148,10 @@ export async function POST(req: NextRequest) {
 
     // Build user message
     const userContent: NIMChatMessage['content'] = images.length > 0
-      ? [...(message ? [{ type: 'text' as const, text: message }] : []), ...images.map(url => ({ type: 'image_url' as const, image_url: { url } }))]
+      ? [
+          ...(message ? [{ type: 'text' as const, text: message }] : []),
+          ...images.map(url => ({ type: 'image_url' as const, image_url: { url } })),
+        ]
       : message;
 
     history.push({ role: 'user', content: userContent });
@@ -134,7 +163,8 @@ export async function POST(req: NextRequest) {
     ];
 
     // Detect task for optimal model routing
-    const task = detectTask(message, images.length > 0, enableThinking);
+    const intent = classifyIntent(message);
+    const task = detectTask(message, images.length > 0, enableThinking, intent);
 
     const providerOpts: StreamWithFallbackOptions = {
       messages: nimMessages,
@@ -146,9 +176,9 @@ export async function POST(req: NextRequest) {
       preferredModel: body.model,
     };
 
-    logger.info('chat', `Preflight ${preflightMs}ms → ${task}`, { rag: preflight.ragUsed });
+    logger.info('chat', `Preflight ${preflightMs}ms | task=${task} | rag=${preflight.ragUsed}${preflight.ragDurationMs ? ` (${preflight.ragDurationMs}ms)` : ''}`);
 
-    // ── STREAMING with automatic fallback ────────────────────────────────
+    // ── Streaming with automatic fallback ──────────────────────────────────
     const { stream, modelUsed, providerUsed, fallbackLevel } = await streamWithFallback(providerOpts);
 
     logger.info('chat', `Streaming via ${modelUsed.displayName} (${providerUsed}, fallback=${fallbackLevel})`);
@@ -158,38 +188,49 @@ export async function POST(req: NextRequest) {
 
     const readable = new ReadableStream({
       async start(controller) {
-        const send = (obj: StreamEvent) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        const send = (obj: StreamEvent) =>
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
 
         try {
-          // Send RAG sources immediately
+          // Emit RAG sources immediately so UI can show them while model warms up
           if (preflight.ragSources.length > 0) {
             send({ type: 'rag', sources: preflight.ragSources, searchQuery: message });
           }
 
-          // Stream tokens from whichever provider responded
           for await (const event of stream) {
             if (event.type === 'thinking') { fullThinking += event.content; send(event); }
             else if (event.type === 'content') { fullContent += event.content; send(event); }
             else if (event.type === 'usage') { send(event); }
           }
 
-          // Save state async
+          // Persist state async (fire and forget)
           if (fullContent) {
             history.push({ role: 'assistant', content: fullContent });
             if (history.length > 120) history = history.slice(-120);
 
             await Promise.all([
               sessionStore.set(sessionKey, history),
-              isNew ? sessionStore.upsertConversation(userId, {
-                id: sessionKey, title: generateTitle(message),
-                createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-                messageCount: history.length, preview: message.slice(0, 80),
-              }) : Promise.resolve(),
+              isNew
+                ? sessionStore.upsertConversation(userId, {
+                    id: sessionKey,
+                    title: generateTitle(message),
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                    messageCount: history.length,
+                    preview: message.slice(0, 80),
+                  })
+                : Promise.resolve(),
               (async () => {
                 try {
                   if (message.length > 20) {
                     const exists = await memoryManager.findSimilar(message);
-                    if (!exists) await memoryManager.store('conversation', `User: ${message}\nNova: ${fullContent.slice(0, 400)}`, 0.3);
+                    if (!exists) {
+                      await memoryManager.store(
+                        'conversation',
+                        `User: ${message}\nNova: ${fullContent.slice(0, 400)}`,
+                        0.3,
+                      );
+                    }
                   }
                 } catch { /* ignore */ }
               })(),
@@ -206,7 +247,11 @@ export async function POST(req: NextRequest) {
           } as StreamEvent & { modelUsed?: string; providerUsed?: string });
           controller.close();
         } catch (err) {
-          send({ type: 'error', message: err instanceof Error ? err.message : 'Stream failed', code: 'STREAM_ERROR' });
+          send({
+            type: 'error',
+            message: err instanceof Error ? err.message : 'Stream failed',
+            code: 'STREAM_ERROR',
+          });
           controller.close();
         }
       },
@@ -222,11 +267,15 @@ export async function POST(req: NextRequest) {
         'X-Provider-Used': providerUsed,
         'X-Fallback-Level': String(fallbackLevel),
         'X-Preflight-Ms': String(preflightMs),
+        'X-Intent': intent,
       },
     });
   } catch (error) {
     logger.error('chat', 'Request failed', error instanceof Error ? error : new Error(String(error)));
-    return Response.json({ success: false, error: error instanceof Error ? error.message : 'Failed', duration: Date.now() - startTime }, { status: 500 });
+    return Response.json(
+      { success: false, error: error instanceof Error ? error.message : 'Failed', duration: Date.now() - startTime },
+      { status: 500 },
+    );
   }
 }
 
@@ -238,6 +287,9 @@ export async function GET(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  await sessionStore.deleteConversation(searchParams.get('userId') ?? 'default', searchParams.get('sessionId') ?? 'default');
+  await sessionStore.deleteConversation(
+    searchParams.get('userId') ?? 'default',
+    searchParams.get('sessionId') ?? 'default',
+  );
   return Response.json({ success: true });
 }
