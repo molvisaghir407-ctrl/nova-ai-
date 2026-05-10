@@ -71,7 +71,9 @@ export type StreamEvent =
 export type QueryIntent =
   | 'factual' | 'news' | 'code' | 'math'
   | 'weather' | 'finance' | 'medical'
-  | 'conversational' | 'creative' | 'general';
+  | 'conversational' | 'creative' | 'general'
+  | 'sports' | 'science' | 'legal' | 'history' | 'geography'
+  | 'comparison' | 'howto';
 
 export interface SubagentResult {
   agentId: string;
