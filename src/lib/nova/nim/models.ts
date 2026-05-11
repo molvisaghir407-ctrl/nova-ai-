@@ -18,6 +18,12 @@ export const NIM_MODELS = {
   DEEPSEEK_CODER:   'deepseek-ai/deepseek-coder-v2-lite-instruct',
   // Reranking
   NV_RERANK:        'nvidia/nv-rerankqa-mistral-4b-v3',
+  // Embeddings — proper text embedding models
+  NV_EMBED_V2:      'nvidia/nv-embed-v2',               // 4096 dims, highest quality
+  NV_EMBED_QA:      'nvidia/llama-3.2-nv-embedqa-1b-v2', // 2048 dims, fast
+  // Lightweight / fast models for internal tasks
+  LLAMA_FAST:       'meta/llama-4-maverick-17b-128e-instruct',
+  LLAMA_TINY:       'meta/llama-3.1-8b-instruct',
 } as const;
 
 export type NIMModelKey = keyof typeof NIM_MODELS;

@@ -22,6 +22,9 @@ import {
   SPECIALIZED_SOURCES,
 } from './intent';
 import { rerank } from '@/lib/nova/nim/client';
+import { rewriteQuery, allQueries } from './query-rewriter';
+import { buildKGContext } from './kg';
+import { searchChunks } from './qdrant';
 
 // ── Cloudflare KV cache ───────────────────────────────────────────────────────
 const KV_BASE = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${process.env.CLOUDFLARE_KV_NAMESPACE_ID}`;
@@ -297,13 +300,38 @@ function enforceDiversity(sources: Source[], maxPerDomain = 3): Source[] {
 }
 
 // ── Layer 5: Rich context builder ─────────────────────────────────────────────
+/**
+ * Thin search-only wrapper — used by multihop.ts for each hop.
+ * Returns sources without the full pipeline overhead (no caching, no KG).
+ */
+export async function runPipelineSearch(
+  primaryQuery: string,
+  additionalQueries: string[] = [],
+  signal?: AbortSignal,
+): Promise<Source[]> {
+  const intent = classifyIntent(primaryQuery);
+  const expanded = expandQuery(primaryQuery, intent);
+  const allQ = [...new Set([primaryQuery, ...additionalQueries, ...expanded])].slice(0, 4);
+
+  const results = await Promise.all(
+    allQ.map(q => ddgSearch(q, 10, signal))
+  );
+  const flat = results.flat();
+  const diverse = enforceDiversity(flat, 3);
+  return diverse.slice(0, 12);
+}
+
 export interface RAGPackage {
-  sources: Source[];
-  intent: QueryIntent;
-  subqueries: string[];
-  fromCache: boolean;
-  durationMs: number;
-  searchQuery: string;
+  sources       : Source[];
+  intent        : QueryIntent;
+  subqueries    : string[];
+  fromCache     : boolean;
+  durationMs    : number;
+  searchQuery   : string;
+  kgContext     : string;   // knowledge graph entity context
+  vectorSnippets: string[]; // top chunks from Qdrant vector store
+  rewrittenQuery: string;   // LLM-rewritten query
+  hops          : number;   // multi-hop count
 }
 
 export async function runRAGPipeline(message: string): Promise<RAGPackage> {
@@ -311,35 +339,51 @@ export async function runRAGPipeline(message: string): Promise<RAGPackage> {
   const intent = classifyIntent(message);
   const complexity = assessComplexity(message, intent);
   const subqueries = decomposeQuery(message, intent);
-  const expanded = expandQuery(message, intent);
   const isLive = ['news', 'weather', 'finance', 'sports'].includes(intent);
+
+  // ── LLM Query Rewriting (fast model, parallel with cache check) ──────────
+  const rewritePromise = rewriteQuery(message);
 
   // Cache check (skip for live/real-time)
   if (!isLive) {
     const cached = await kvGet(cacheKey(message));
     if (cached?.length) {
       return {
-        sources: cached,
+        sources       : cached,
         intent,
         subqueries,
-        fromCache: true,
-        durationMs: Date.now() - pipelineStart,
-        searchQuery: message,
+        fromCache     : true,
+        durationMs    : Date.now() - pipelineStart,
+        searchQuery   : message,
+        kgContext     : '',
+        vectorSnippets: [],
+        rewrittenQuery: message,
+        hops          : 1,
       };
     }
   }
 
+  // Await rewrite result
+  const rewrite = await rewritePromise;
+  const searchMessage = rewrite.rewrittenQuery || message;
+  const expanded = allQueries(rewrite);
+
   const ac = new AbortController();
   // Hard timeout scales with complexity
-  const timeoutMs = complexity === 'research' ? 12000 : complexity === 'complex' ? 9000 : 7000;
+  const timeoutMs = complexity === 'research' ? 14000 : complexity === 'complex' ? 10000 : 8000;
   const globalTimer = setTimeout(() => ac.abort(), timeoutMs);
+
+  // ── LAYER 0b: Vector chunk search (Qdrant) — runs in parallel ─────────────
+  const vectorSearchPromise = searchChunks(searchMessage, 6).catch(() => []);
 
   // ── LAYER 1: Parallel multi-source retrieval ───────────────────────────────
   const promises: Array<Promise<Source[]>> = [
-    // Primary search
-    ddgSearch(message, 15, ac.signal),
+    // Primary search with REWRITTEN query
+    ddgSearch(searchMessage, 15, ac.signal),
+    // Also search with original for coverage
+    expanded.length > 1 ? ddgSearch(expanded[1] ?? message, 8, ac.signal) : Promise.resolve([]),
     // Wikipedia — always for factual grounding
-    wikipediaSearch(message, ac.signal),
+    wikipediaSearch(searchMessage, ac.signal),
   ];
 
   // Intent-specific sources — always add Reddit for community perspective
@@ -411,12 +455,16 @@ export async function runRAGPipeline(message: string): Promise<RAGPackage> {
 
   if (!allSources.length) {
     return {
-      sources: [],
+      sources       : [],
       intent,
       subqueries,
-      fromCache: false,
-      durationMs: Date.now() - pipelineStart,
-      searchQuery: message,
+      fromCache     : false,
+      durationMs    : Date.now() - pipelineStart,
+      searchQuery   : searchMessage ?? message,
+      kgContext     : '',
+      vectorSnippets: [],
+      rewrittenQuery: searchMessage ?? message,
+      hops          : 1,
     };
   }
 
@@ -453,13 +501,27 @@ export async function runRAGPipeline(message: string): Promise<RAGPackage> {
   // Cache (skip live intents)
   if (!isLive) void kvSet(cacheKey(message), finalSources);
 
+  // ── LAYER 5: Knowledge graph context (parallel with reranking) ────────────
+  const [kgContext, vectorHits] = await Promise.all([
+    buildKGContext(searchMessage).catch(() => ''),
+    vectorSearchPromise,
+  ]);
+
+  const vectorSnippets = vectorHits.map(h =>
+    `[Vector] ${h.payload.domain}: ${h.payload.text.slice(0, 300)}`
+  );
+
   return {
-    sources: finalSources,
+    sources       : finalSources,
     intent,
     subqueries,
-    fromCache: false,
-    durationMs: Date.now() - pipelineStart,
-    searchQuery: message,
+    fromCache     : false,
+    durationMs    : Date.now() - pipelineStart,
+    searchQuery   : searchMessage,
+    kgContext,
+    vectorSnippets,
+    rewrittenQuery: searchMessage,
+    hops          : 1,
   };
 }
 
@@ -499,7 +561,11 @@ export function buildRichContext(pkg: RAGPackage): string {
     '---',
     `## ${label} Research Context — ${pkg.sources.length} sources · ${pkg.durationMs}ms${cacheNote}`,
     `**Query**: "${pkg.searchQuery}"`,
-  ];
+    pkg.rewrittenQuery && pkg.rewrittenQuery !== pkg.searchQuery
+      ? `**Optimized**: "${pkg.rewrittenQuery}"`
+      : '',
+    pkg.hops > 1 ? `**Multi-hop**: ${pkg.hops} search hops` : '',
+  ].filter(Boolean);
 
   if (pkg.subqueries.length > 1) {
     parts.push(`**Also searched**: ${pkg.subqueries.slice(1).join(' · ')}`);

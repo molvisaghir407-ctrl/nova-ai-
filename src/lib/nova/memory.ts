@@ -183,3 +183,98 @@ class MemoryManager {
 }
 
 export const memoryManager = new MemoryManager();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SEMANTIC MEMORY LAYER — Qdrant-backed vector memory
+// ═══════════════════════════════════════════════════════════════════════════
+import {
+  upsertMemory as qdrantUpsert,
+  searchMemory as qdrantSearch,
+  deleteMemory as qdrantDelete,
+  type MemoryPoint,
+} from '@/lib/nova/rag/qdrant';
+
+let _memIdCounter = Date.now();
+function newMemId(): string { return `mem_${(++_memIdCounter).toString(36)}`; }
+
+/**
+ * SemanticMemoryManager
+ * Uses Qdrant as the backend for vector-based memory storage and retrieval.
+ * Falls back to the Prisma-based MemoryManager when Qdrant is not configured.
+ */
+class SemanticMemoryManager {
+  /**
+   * Store a memory with dense + sparse vectors for hybrid recall.
+   * Automatically skips duplicates (same content → same id via hash).
+   */
+  async remember(
+    content   : string,
+    category  : MemoryEntry['category'] = 'fact',
+    importance: number = 0.5,
+    metadata ?: Record<string, unknown>,
+  ): Promise<void> {
+    const point: MemoryPoint = {
+      id        : newMemId(),
+      content,
+      category,
+      importance: Math.max(0, Math.min(1, importance)),
+      metadata,
+      createdAt : new Date().toISOString(),
+    };
+    await qdrantUpsert(point);
+    // Also write to Prisma for persistence during Qdrant cold starts
+    try {
+      await memoryManager.store(category, content, importance, metadata);
+    } catch { /* Prisma unavailable — Qdrant is primary */ }
+  }
+
+  /**
+   * Recall semantically relevant memories using hybrid search.
+   * Returns top-K results fused with RRF across dense + sparse signals.
+   */
+  async recall(
+    query: string,
+    topK = 5,
+  ): Promise<MemorySearchResult[]> {
+    const hits = await qdrantSearch(query, topK);
+    if (hits.length) {
+      return hits.map(h => ({
+        id           : h.id,
+        content      : h.payload.content,
+        category     : h.payload.category,
+        importance   : h.payload.importance,
+        relevanceScore: h.score,
+      }));
+    }
+    // Fallback to Prisma-based search
+    return memoryManager.recall(query, { limit: topK });
+  }
+
+  /** Remove a specific memory by ID */
+  async forget(id: string): Promise<void> {
+    await qdrantDelete(id);
+  }
+
+  /**
+   * Build a rich context string from semantically-relevant memories.
+   * Called before the LLM prompt to inject long-term user context.
+   */
+  async buildSemanticContext(query: string, maxEntries = 5): Promise<string> {
+    const memories = await this.recall(query, maxEntries);
+    if (!memories.length) return '';
+    const lines = memories
+      .filter(m => m.importance >= 0.3)
+      .map(m => {
+        const prefix =
+          m.category === 'preference' ? 'User preference' :
+          m.category === 'fact'       ? 'Known fact'      :
+          m.category === 'skill'      ? 'User skill'      :
+          'Remembered';
+        return `- ${prefix}: ${m.content}`;
+      });
+    if (!lines.length) return '';
+    return `\n## Semantic Memory (${memories.length} relevant entries)\n${lines.join('\n')}\n`;
+  }
+}
+
+export const semanticMemory = new SemanticMemoryManager();

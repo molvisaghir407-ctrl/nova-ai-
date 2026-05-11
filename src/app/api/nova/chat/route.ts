@@ -6,6 +6,8 @@ import { sessionStore } from '@/lib/kv-sessions';
 import { streamWithFallback, type StreamWithFallbackOptions } from '@/lib/nova/providers/client';
 import { classifyIntent, shouldUseRAG, assessComplexity } from '@/lib/nova/rag/intent';
 import { runRAGPipeline, buildRichContext } from '@/lib/nova/rag/pipeline';
+import { inngest } from '@/lib/inngest/client';
+import { semanticMemory } from '@/lib/nova/memory';
 import type { NIMChatMessage } from '@/types/nvidia.types';
 import type { StreamEvent, Source } from '@/types/nova.types';
 import type { TaskType } from '@/lib/nova/providers/registry';
@@ -253,6 +255,59 @@ export async function POST(req: NextRequest) {
               })(),
             ]);
           }
+
+          // ── Fire Inngest background events (non-blocking) ───────────────────
+          void (async () => {
+            try {
+              const eventsToSend: Array<{ name: string; data: unknown }> = [];
+
+              // 1. Index RAG sources into vector store
+              if (preflight.ragSources?.length) {
+                eventsToSend.push({
+                  name: 'nova/content.index',
+                  data: {
+                    sources  : preflight.ragSources.map((s: { url?: string; snippet?: string; domain?: string }) => ({
+                      url   : s.url ?? '',
+                      text  : s.snippet ?? '',
+                      domain: s.domain ?? '',
+                    })),
+                    query    : message,
+                    sessionId: sessionKey,
+                  },
+                });
+              }
+
+              // 2. Consolidate conversation into semantic memory
+              if (history.length >= 2) {
+                eventsToSend.push({
+                  name: 'nova/memory.consolidate',
+                  data: {
+                    userId  : userId,
+                    messages: history.slice(-6).map(m => ({
+                      role   : m.role,
+                      content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+                    })),
+                  },
+                });
+              }
+
+              // 3. Update knowledge graph from RAG text
+              const kgTexts = (preflight.ragSources ?? [])
+                .map((s: { snippet?: string }) => s.snippet ?? '')
+                .filter((t: string) => t.length > 100)
+                .slice(0, 5);
+              if (kgTexts.length) {
+                eventsToSend.push({
+                  name: 'nova/kg.update',
+                  data: { texts: kgTexts, sessionId: sessionKey },
+                });
+              }
+
+              if (eventsToSend.length) {
+                await inngest.send(eventsToSend as Parameters<typeof inngest.send>[0]);
+              }
+            } catch { /* background events failing must never crash the response */ }
+          })();
 
           send({
             type: 'done',
