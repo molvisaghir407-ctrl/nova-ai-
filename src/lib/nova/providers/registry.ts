@@ -219,7 +219,7 @@ export function getProviderModels(provider: ProviderName): ModelDef[] {
 }
 
 // ── Helper: get best model for a task ───────────────────────────────────────
-export type TaskType = 'general' | 'code' | 'math' | 'reasoning' | 'fast' | 'vision' | 'long_context' | 'thinking' | 'summarize' | 'analysis';
+export type TaskType = 'general' | 'code' | 'code_review' | 'math' | 'reasoning' | 'fast' | 'vision' | 'long_context' | 'thinking' | 'summarize' | 'analysis';
 
 export function getBestModelForTask(task: TaskType, preferFree = false): ModelDef[] {
   const available = MODEL_CATALOGUE.filter(m => {
@@ -243,7 +243,7 @@ export function getFallbackChain(task: TaskType, enableThinking: boolean, hasVis
     chain.push(MODEL_CATALOGUE.find(m => m.id === 'moonshotai/kimi-k2-instruct')!);
   } else if (hasVision) {
     chain.push(MODEL_CATALOGUE.find(m => m.id === 'meta/llama-4-maverick-17b-128e-instruct')!);
-  } else if (task === 'math' || task === 'reasoning') {
+  } else if (task === 'math' || task === 'reasoning' || task === 'code_review') {
     chain.push(MODEL_CATALOGUE.find(m => m.id === 'deepseek-ai/deepseek-r1')!);
   } else {
     chain.push(MODEL_CATALOGUE.find(m => m.id === 'moonshotai/kimi-k2-instruct')!);

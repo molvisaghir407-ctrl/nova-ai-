@@ -125,11 +125,19 @@ async function callProvider(opts: CallOptions): Promise<Response> {
     headers['X-Title'] = 'Nova AI';
   }
 
+  // Combine caller signal with a hard 45-second timeout
+  const timeoutSignal = AbortSignal.timeout(45000);
+  const combinedSignal = opts.signal
+    ? AbortSignal.any([opts.signal, timeoutSignal])
+    : timeoutSignal;
+
   const res = await fetch(`${provider.baseUrl}/chat/completions`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
-    signal: opts.signal,
+    signal: combinedSignal,
+    // Keep connection alive for long streaming responses
+    keepalive: false,
   });
 
   if (!res.ok) {
@@ -235,7 +243,7 @@ export async function quickComplete(
         method: 'POST',
         headers,
         body: JSON.stringify({ model: model.id, messages, max_tokens: maxTokens, temperature: 0.3, stream: false }),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(20000),
       });
       if (!res.ok) continue;
       const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };

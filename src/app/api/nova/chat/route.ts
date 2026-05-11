@@ -127,6 +127,26 @@ async function buildPreflightContainer(
   };
 }
 
+
+// ── Stream normalizer ─────────────────────────────────────────────────────────
+// NVIDIA NIM (and most LLMs) send tokens in large irregular bursts.
+// This generator splits every content chunk on whitespace boundaries so
+// the client receives a steady word-by-word SSE feed — regardless of how
+// chunky the underlying model is.  Zero latency cost: pure string splits.
+async function* normalizeStream(source: AsyncGenerator<StreamEvent>): AsyncGenerator<StreamEvent> {
+  for await (const event of source) {
+    if (event.type !== 'content' || event.content.length <= 3) {
+      yield event;
+      continue;
+    }
+    // Split on whitespace keeping delimiters so spaces/newlines are preserved
+    const parts = event.content.match(/\S+\s*|\s+/g) ?? [event.content];
+    for (const part of parts) {
+      yield { type: 'content', content: part };
+    }
+  }
+}
+
 // ── POST /api/nova/chat ───────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
@@ -216,7 +236,8 @@ export async function POST(req: NextRequest) {
             send({ type: 'rag', sources: preflight.ragSources, searchQuery: message });
           }
 
-          for await (const event of stream) {
+          const normalizedStream = normalizeStream(stream);
+        for await (const event of normalizedStream) {
             if (event.type === 'thinking') { fullThinking += event.content; send(event); }
             else if (event.type === 'content') { fullContent += event.content; send(event); }
             else if (event.type === 'usage') { send(event); }

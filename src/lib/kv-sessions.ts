@@ -10,19 +10,30 @@ const BASE = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/sto
 
 const headers = () => ({ Authorization: `Bearer ${CF_TOKEN}` });
 
-async function kvGet(key: string): Promise<string | null> {
-  const res = await fetch(`${BASE}/values/${encodeURIComponent(key)}`, { headers: headers(), cache: 'no-store' });
-  if (!res.ok) return null;
-  return res.text();
+async function kvGet(key: string, timeoutMs = 3000): Promise<string | null> {
+  try {
+    const res = await fetch(`${BASE}/values/${encodeURIComponent(key)}`, {
+      headers: headers(),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return null;
+    return res.text();
+  } catch {
+    return null; // Treat timeout/network error as cache miss
+  }
 }
 
 async function kvSet(key: string, value: string, ttl = 604800): Promise<void> {
-  const form = new FormData();
-  form.append('value', value);
-  form.append('metadata', JSON.stringify({ updatedAt: new Date().toISOString() }));
-  await fetch(`${BASE}/values/${encodeURIComponent(key)}?expiration_ttl=${ttl}`, {
-    method: 'PUT', headers: headers(), body: form, cache: 'no-store',
-  });
+  try {
+    const form = new FormData();
+    form.append('value', value);
+    form.append('metadata', JSON.stringify({ updatedAt: new Date().toISOString() }));
+    await fetch(`${BASE}/values/${encodeURIComponent(key)}?expiration_ttl=${ttl}`, {
+      method: 'PUT', headers: headers(), body: form, cache: 'no-store',
+      signal: AbortSignal.timeout(4000),
+    });
+  } catch { /* non-critical — ignore write failures */ }
 }
 
 async function kvDel(key: string): Promise<void> {

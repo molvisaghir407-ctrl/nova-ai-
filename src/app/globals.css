@@ -414,3 +414,55 @@ main, aside {
 .badge-interactive:hover {
   transform: translateY(-1px);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   SMOOTH SCROLL CONTAINER
+   GPU-layer the chat scroll area so height changes don't
+   trigger layout recalculation on the rest of the page.
+═══════════════════════════════════════════════════════════════ */
+.nova-scroll-area {
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+  will-change: scroll-position;
+  -webkit-overflow-scrolling: touch; /* smooth momentum on iOS */
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MESSAGE BUBBLE HEIGHT EXPANSION
+   Wrap new content in a container with a max-height transition
+   so the bubble expands smoothly rather than jumping.
+═══════════════════════════════════════════════════════════════ */
+.nova-bubble-content {
+  transition: max-height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WORD REVEAL — subtle opacity cascade on newly added words
+   Applied only inside .is-streaming so settled messages are static.
+═══════════════════════════════════════════════════════════════ */
+@keyframes word-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.is-streaming .nova-md > p > *:last-child,
+.is-streaming .nova-md > ul > li:last-child,
+.is-streaming .nova-md > ol > li:last-child {
+  animation: word-in 0.12s ease-out both;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SMOOTH TEXTAREA AUTO-RESIZE — no height jump
+═══════════════════════════════════════════════════════════════ */
+.nova-textarea {
+  transition: height 0.1s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.15s ease,
+              box-shadow 0.15s ease;
+  overflow-y: hidden;
+}
+
+.nova-textarea:focus {
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.4),
+              0 0 16px rgba(139, 92, 246, 0.08);
+}
