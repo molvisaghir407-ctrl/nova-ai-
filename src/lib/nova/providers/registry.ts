@@ -235,41 +235,59 @@ export function getBestModelForTask(task: TaskType, preferFree = false): ModelDe
 }
 
 // ── Priority fallback chain for a given task ─────────────────────────────────
+//
+// Routing philosophy (Grok-style adaptive):
+//   fast/chat queries   → Groq first (sub-100ms TTFT, free)
+//   complex/research    → NVIDIA NIM Kimi K2 (best quality, 128k)
+//   math/reasoning      → DeepSeek R1 (purpose-built)
+//   thinking/extended   → Kimi K2 → Gemini 2.5 Flash (both support thinking)
+//   vision              → Llama 4 Maverick → Gemini Flash (best vision models)
+//   long context (>64k) → Gemini 1M → Kimi K2 128k
+//
 export function getFallbackChain(task: TaskType, enableThinking: boolean, hasVision: boolean): ModelDef[] {
+  const m = (id: string) => MODEL_CATALOGUE.find(x => x.id === id)!;
   const chain: ModelDef[] = [];
 
-  // 1. NVIDIA NIM (primary — best quality)
+  // ── Primary ──────────────────────────────────────────────────────────────
   if (enableThinking) {
-    chain.push(MODEL_CATALOGUE.find(m => m.id === 'moonshotai/kimi-k2-instruct')!);
+    // Extended thinking: Kimi K2 (best), then Gemini 2.5 Flash (free thinking)
+    chain.push(m('moonshotai/kimi-k2-instruct'));
+    chain.push(m('gemini-2.5-flash-preview-04-17'));
+    chain.push(m('deepseek-r1-distill-llama-70b'));   // Groq thinking fallback
   } else if (hasVision) {
-    chain.push(MODEL_CATALOGUE.find(m => m.id === 'meta/llama-4-maverick-17b-128e-instruct')!);
+    chain.push(m('meta/llama-4-maverick-17b-128e-instruct'));
+    chain.push(m('gemini-2.0-flash'));                 // Gemini vision
+    chain.push(m('meta-llama/llama-4-scout-17b-16e-instruct')); // Groq vision
   } else if (task === 'math' || task === 'reasoning' || task === 'code_review') {
-    chain.push(MODEL_CATALOGUE.find(m => m.id === 'deepseek-ai/deepseek-r1')!);
+    chain.push(m('deepseek-ai/deepseek-r1'));          // Purpose-built for math
+    chain.push(m('deepseek-r1-distill-llama-70b'));    // Groq DeepSeek distill
+    chain.push(m('moonshotai/kimi-k2-instruct'));
+  } else if (task === 'fast') {
+    // Fast queries: Groq wins on TTFT, use as primary
+    chain.push(m('llama-3.3-70b-versatile'));          // Groq primary
+    chain.push(m('gemini-2.0-flash'));                 // Gemini fast
+    chain.push(m('moonshotai/kimi-k2-instruct'));
+  } else if (task === 'long_context') {
+    chain.push(m('gemini-2.5-flash-preview-04-17'));   // 1M context
+    chain.push(m('moonshotai/kimi-k2-instruct'));      // 128k
+    chain.push(m('llama-3.3-70b-versatile'));          // Groq 128k
   } else {
-    chain.push(MODEL_CATALOGUE.find(m => m.id === 'moonshotai/kimi-k2-instruct')!);
+    // Default: NVIDIA Kimi K2 for quality, Groq as fast fallback
+    chain.push(m('moonshotai/kimi-k2-instruct'));
+    chain.push(m('llama-3.3-70b-versatile'));          // Groq
+    chain.push(m('gemini-2.0-flash'));                 // Gemini
   }
 
-  // 2. Groq (free, ultra-fast fallback)
-  if (enableThinking) {
-    chain.push(MODEL_CATALOGUE.find(m => m.id === 'deepseek-r1-distill-llama-70b')!);
-  } else if (hasVision) {
-    chain.push(MODEL_CATALOGUE.find(m => m.id === 'meta-llama/llama-4-scout-17b-16e-instruct')!);
-  } else {
-    chain.push(MODEL_CATALOGUE.find(m => m.id === 'llama-3.3-70b-versatile')!);
+  // ── Always append remaining providers as safety net ───────────────────────
+  const safetyNet = [
+    'Qwen/Qwen2.5-72B-Instruct',                      // HuggingFace free
+    'meta-llama/llama-3.3-70b-instruct:free',          // OpenRouter free
+    'google/gemini-2.0-flash-exp:free',                // OpenRouter Gemini
+  ];
+  for (const id of safetyNet) {
+    const model = m(id);
+    if (model && !chain.find(x => x.id === id)) chain.push(model);
   }
-
-  // 3. HuggingFace (free, 72B quality)
-  chain.push(MODEL_CATALOGUE.find(m => m.id === 'Qwen/Qwen2.5-72B-Instruct')!);
-
-  // 4. Google Gemini (free, 1M context)
-  if (enableThinking) {
-    chain.push(MODEL_CATALOGUE.find(m => m.id === 'gemini-2.5-flash-preview-04-17')!);
-  } else {
-    chain.push(MODEL_CATALOGUE.find(m => m.id === 'gemini-2.0-flash')!);
-  }
-
-  // 5. OpenRouter (free models, last resort)
-  chain.push(MODEL_CATALOGUE.find(m => m.id === 'meta-llama/llama-3.3-70b-instruct:free')!);
 
   return chain.filter(Boolean);
 }

@@ -102,7 +102,7 @@ export const MessageBubble = memo(function MessageBubble({
       initial={{ opacity: 0, y: 8, scale: 0.99 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
-      className={cn('group flex gap-3', isUser ? 'flex-row-reverse' : 'flex-row')}
+      className={cn('group flex gap-3 nova-message-row', isUser ? 'flex-row-reverse' : 'flex-row')}
     >
       {/* Avatar */}
       <div
@@ -149,7 +149,7 @@ export const MessageBubble = memo(function MessageBubble({
               'relative rounded-2xl text-sm transition-all duration-200',
               isUser
                 ? 'bg-gradient-to-br from-blue-600 to-violet-700 text-white rounded-tr-sm px-4 py-3'
-                : 'bg-zinc-800/70 border border-white/8 text-zinc-100 rounded-tl-sm px-4 py-3 w-full hover:border-white/12',
+                : 'bg-zinc-800/70 border border-white/8 text-zinc-100 rounded-tl-sm px-4 py-3 w-full hover:border-white/12 nova-bubble-inner',
             )}
           >
             {isUser ? (

@@ -106,7 +106,7 @@ async function buildPreflightContainer(
   const [historyResult, memResult, ragResult] = await Promise.allSettled([
     sessionStore.get(sessionKey),
     includeContext ? memoryManager.buildContextPrompt(6) : Promise.resolve(''),
-    needRAG ? runRAGPipeline(message) : Promise.resolve(null),
+    needRAG ? runRAGPipeline(message, (historyResult.status === 'fulfilled' ? historyResult.value : []) as Array<{ role: string; content: string }>) : Promise.resolve(null),
   ]);
 
   const history = historyResult.status === 'fulfilled' ? historyResult.value : [];

@@ -153,23 +153,38 @@ select:focus-visible {
    Each new word token fades + slides in individually.
    Only newly-created DOM nodes get this class (stable key trick).
 ═══════════════════════════════════════════════════════════════ */
-@keyframes word-fade-in {
-  from { opacity: 0; transform: translateY(2px); }
+/* ── Grok-style word entrance: fast fade + 3px upward slide ── */
+@keyframes nova-word-enter {
+  from { opacity: 0; transform: translateY(3px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.word-appear {
-  animation: word-fade-in 0.1s cubic-bezier(0.4, 0, 0.2, 1) both;
+.nova-word-enter {
+  animation: nova-word-enter 0.14s cubic-bezier(0.22, 1, 0.36, 1) both;
   will-change: opacity, transform;
   display: inline;
 }
+/* Keep old class for compat */
+.word-appear {
+  animation: nova-word-enter 0.14s cubic-bezier(0.22, 1, 0.36, 1) both;
+  display: inline;
+}
 
-/* Smooth fade when switching from streaming → markdown render */
-@keyframes md-reveal {
-  from { opacity: 0.6; }
+/* Settled blocks promote from live: soft opacity lift */
+@keyframes nova-settle {
+  from { opacity: 0.75; }
   to   { opacity: 1; }
 }
+.nova-md > *:last-child {
+  animation: nova-settle 0.18s ease-out both;
+}
+
+/* Smooth fade-in when full markdown replaces plain text after stream */
+@keyframes md-reveal {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 .nova-md-revealed {
-  animation: md-reveal 0.2s ease-out both;
+  animation: md-reveal 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -465,4 +480,56 @@ main, aside {
 .nova-textarea:focus {
   box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.4),
               0 0 16px rgba(139, 92, 246, 0.08);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GROK-STYLE SMOOTH BUBBLE EXPANSION
+   The message bubble grows naturally from bottom as content arrives.
+   GPU-composited so layout reflows don't drop frames.
+═══════════════════════════════════════════════════════════════ */
+.nova-bubble-inner {
+  /* Isolate this subtree from the rest of the layout */
+  contain: layout style;
+  /* GPU layer so height change doesn't repaint siblings */
+  will-change: transform;
+  /* Smooth min-height growth */
+  transition: min-height 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Each new <p> / heading / li in a streaming bubble slides up */
+@keyframes grok-line-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Applied to newly settled ReactMarkdown nodes during streaming */
+.nova-streaming-root .nova-md .nova-para,
+.nova-streaming-root .nova-md .nova-heading,
+.nova-streaming-root .nova-md .nova-li {
+  animation: grok-line-enter 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* The live text paragraph slides in from slightly below */
+.nova-streaming-root > p.nova-para {
+  animation: grok-line-enter 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Scroll area: GPU-composited smooth scrolling, elastic overscroll */
+.nova-scroll-area {
+  scroll-behavior: smooth;
+  overscroll-behavior-y: contain;
+  will-change: scroll-position;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent layout jank when bubble height changes */
+.nova-message-row {
+  contain: layout;
+  will-change: contents;
 }

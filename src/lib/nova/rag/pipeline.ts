@@ -299,6 +299,105 @@ function enforceDiversity(sources: Source[], maxPerDomain = 3): Source[] {
   return result;
 }
 
+
+// ── Conversational context resolver ──────────────────────────────────────────
+// When the user says "what about it?", "who are they?", "explain more" —
+// resolve the reference using recent conversation history so the search
+// query is semantically complete.
+export function resolveConversationalQuery(
+  message: string,
+  recentHistory: Array<{ role: string; content: string }>,
+): string {
+  const lower = message.trim().toLowerCase();
+  const isVague = lower.length < 40 ||
+    /^(what about|tell me more|explain (more|that|it|this)|who (is|are) (they|it|he|she)|how (does|do) (it|that|this) work|why (is|are|does) (that|it|this)|and (what|how|why)|more (about|on|details)|go (on|ahead)|continue|elaborate|can you expand)/i.test(lower) ||
+    /(it|they|that|this|those|these|him|her|them)/.test(lower) && lower.split(' ').length < 8;
+
+  if (!isVague || recentHistory.length === 0) return message;
+
+  // Extract key subject from recent assistant response
+  const lastAssistant = [...recentHistory].reverse().find(m => m.role === 'assistant');
+  const lastUser      = [...recentHistory].reverse().find(m => m.role === 'user' && m.content !== message);
+
+  if (!lastAssistant && !lastUser) return message;
+
+  // Pull the first meaningful noun phrase from the prior context
+  const priorContext = (lastUser?.content ?? '') + ' ' + (lastAssistant?.content?.slice(0, 200) ?? '');
+  const nouns = priorContext.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/g) ?? [];
+  const subject = nouns.slice(0, 3).join(' ');
+
+  if (!subject) return message;
+
+  // Expand vague query: "what about it?" → "what about [subject]?"
+  const expanded = message.replace(/(it|they|that|this|those|these|him|her|them)/gi, subject);
+  return expanded !== message ? expanded : `${subject} — ${message}`;
+}
+
+// ── DuckDuckGo Instant Answer API (for quick factual lookups) ─────────────────
+async function ddgInstantAnswer(query: string, signal?: AbortSignal): Promise<Source[]> {
+  try {
+    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+    const res = await fetch(url, { signal: signal ?? AbortSignal.timeout(3000) });
+    if (!res.ok) return [];
+    const data = await res.json() as {
+      AbstractText?: string; AbstractSource?: string; AbstractURL?: string;
+      Answer?: string; AnswerType?: string;
+      RelatedTopics?: Array<{ Text?: string; FirstURL?: string }>;
+    };
+
+    const sources: Source[] = [];
+    // Main abstract (Wikipedia-sourced usually)
+    if (data.AbstractText && data.AbstractURL) {
+      sources.push({
+        id: 1,
+        title: `${data.AbstractSource ?? 'Quick Answer'}: ${query}`,
+        url: data.AbstractURL,
+        snippet: data.AbstractText.slice(0, 600),
+        domain: data.AbstractSource?.toLowerCase() ?? 'duckduckgo.com',
+        date: '',
+      });
+    }
+    // Instant answer (e.g. calculations, definitions)
+    if (data.Answer) {
+      sources.push({
+        id: 2,
+        title: `Instant Answer: ${query}`,
+        url: `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
+        snippet: data.Answer,
+        domain: 'duckduckgo.com',
+        date: '',
+      });
+    }
+    return sources;
+  } catch { return []; }
+}
+
+// ── Stack Exchange API (for technical questions) ───────────────────────────────
+async function stackExchangeSearch(query: string, signal?: AbortSignal): Promise<Source[]> {
+  try {
+    const url = `https://api.stackexchange.com/2.3/search/advanced?q=${encodeURIComponent(query)}&order=desc&sort=votes&site=stackoverflow&filter=withbody&pagesize=4`;
+    const res = await fetch(url, { signal: signal ?? AbortSignal.timeout(4000) });
+    if (!res.ok) return [];
+    const data = await res.json() as {
+      items?: Array<{
+        title?: string; link?: string; body?: string;
+        score?: number; answer_count?: number; is_answered?: boolean;
+      }>
+    };
+    return (data.items ?? [])
+      .filter(i => (i.is_answered ?? false) || (i.score ?? 0) > 5)
+      .slice(0, 3)
+      .map((item, i) => ({
+        id: i + 1,
+        title: `StackOverflow: ${item.title ?? ''}`,
+        url: item.link ?? '',
+        snippet: (item.body ?? '').replace(/<[^>]+>/g, '').slice(0, 500),
+        domain: 'stackoverflow.com',
+        date: '',
+      }));
+  } catch { return []; }
+}
+
 // ── Layer 5: Rich context builder ─────────────────────────────────────────────
 /**
  * Thin search-only wrapper — used by multihop.ts for each hop.
@@ -334,7 +433,10 @@ export interface RAGPackage {
   hops          : number;   // multi-hop count
 }
 
-export async function runRAGPipeline(message: string): Promise<RAGPackage> {
+export async function runRAGPipeline(
+  message: string,
+  recentHistory: Array<{ role: string; content: string }> = [],
+): Promise<RAGPackage> {
   const pipelineStart = Date.now();
   const intent = classifyIntent(message);
   const complexity = assessComplexity(message, intent);
@@ -398,13 +500,13 @@ export async function runRAGPipeline(message: string): Promise<RAGPackage> {
     promises.push(hackerNewsSearch(message, ac.signal));
     promises.push(ddgSearch(`${message} tutorial documentation`, 5, ac.signal));
   } else if (['news', 'finance', 'sports'].includes(intent)) {
-    promises.push(hackerNewsSearch(message, ac.signal));
-    promises.push(ddgSearch(`${message} news 2026`, 8, ac.signal));
+    promises.push(hackerNewsSearch(searchMessage, ac.signal));
+    promises.push(ddgSearch(`${searchMessage} news 2026`, 8, ac.signal));
     promises.push(ddgSearch(`${message} latest update`, 6, ac.signal));
   } else if (intent === 'science' || intent === 'medical') {
     const specSources = SPECIALIZED_SOURCES[intent] ?? [];
     if (specSources.length > 0) {
-      promises.push(ddgSearch(`${message} ${specSources[0] ?? ''}`, 6, ac.signal));
+      promises.push(ddgSearch(`${searchMessage} ${specSources[0] ?? ''}`, 6, ac.signal));
     }
     promises.push(ddgSearch(`${message} research study 2025 2026`, 6, ac.signal));
     promises.push(hackerNewsSearch(message, ac.signal));
