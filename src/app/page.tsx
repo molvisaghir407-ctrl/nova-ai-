@@ -20,6 +20,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { useNovaStore } from '@/lib/nova/store';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import type { ExtMessage, Source, ConversationMeta, StreamEvent } from '@/types/nova.types';
 import { cn } from '@/lib/utils';
@@ -664,6 +665,7 @@ function RAGIndicator({ isSearching, sources, status }: { isSearching: boolean; 
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function NovaApp() {
   const { messages, addMessage, updateLastMessage, clearMessages, settings } = useNovaStore();
+  const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState<NavTab>('chat');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
@@ -683,9 +685,15 @@ export default function NovaApp() {
   const isNearBottomRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // RAF throttle for content updates — caps at ~60fps to avoid layout thrashing
+  const rafPendingRef = useRef(false);
+  const pendingUpdateRef = useRef<{ id: string; content: string; thinking?: string } | null>(null);
   const API_KEY = process.env.NEXT_PUBLIC_NOVA_API_KEY ?? '';
 
   useEffect(() => { window.__nova_key = API_KEY; }, [API_KEY]);
+
+  // Close sidebar on mobile by default
+  useEffect(() => { if (isMobile) setSidebarOpen(false); }, [isMobile]);
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -798,8 +806,19 @@ export default function NovaApp() {
             setPreflightStatus('');
             if (thinkingStreamingId) setThinkingStreamingId(null);
             contentAcc += evt.content;
-            updateLastMessage(assistantId, contentAcc, thinkingAcc || undefined);
-            if (isNearBottomRef.current && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            // RAF-throttled update — only triggers a React re-render once per animation frame
+            pendingUpdateRef.current = { id: assistantId, content: contentAcc, thinking: thinkingAcc || undefined };
+            if (!rafPendingRef.current) {
+              rafPendingRef.current = true;
+              requestAnimationFrame(() => {
+                const upd = pendingUpdateRef.current;
+                if (upd) updateLastMessage(upd.id, upd.content, upd.thinking);
+                rafPendingRef.current = false;
+                if (isNearBottomRef.current && scrollRef.current) {
+                  scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+                }
+              });
+            }
             continue;
           }
           if (evt.type === 'usage') { setTokenCount({ prompt: evt.usage.prompt_tokens, completion: evt.usage.completion_tokens }); continue; }
@@ -841,15 +860,29 @@ export default function NovaApp() {
   return (
     <div className="flex h-screen bg-zinc-950 text-white overflow-hidden">
 
-      {/* Sidebar */}
+      {/* Sidebar — overlay on mobile, inline on desktop */}
       <AnimatePresence>
+        {sidebarOpen && isMobile && (
+          <motion.div
+            key="backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="mobile-sidebar-backdrop"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
         {sidebarOpen && (
           <motion.aside
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 240, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
+            initial={isMobile ? { x: -260, opacity: 0 } : { width: 0, opacity: 0 }}
+            animate={isMobile ? { x: 0, opacity: 1 } : { width: 240, opacity: 1 }}
+            exit={isMobile ? { x: -260, opacity: 0 } : { width: 0, opacity: 0 }}
             transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
-            className="flex flex-col border-r border-white/8 bg-zinc-900/60 shrink-0 overflow-hidden"
+            className={cn(
+              "flex flex-col border-r border-white/8 bg-zinc-900/60 overflow-hidden",
+              isMobile ? "mobile-sidebar-fixed w-[240px]" : "shrink-0"
+            )}
           >
             {/* Logo + new chat */}
             <div className="p-4 border-b border-white/8">
@@ -983,7 +1016,7 @@ export default function NovaApp() {
                   )}
                 >
                   <Brain className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Think</span>
+                  <span className="hidden xs:inline">Think</span>
                 </button>
                 {messages.length > 0 && (
                   <button
@@ -1007,13 +1040,13 @@ export default function NovaApp() {
               <div
                 ref={scrollRef}
                 onScroll={handleScroll}
-                className="flex-1 overflow-y-auto px-4 py-6"
+                className="flex-1 overflow-y-auto px-2 sm:px-4 py-4 sm:py-6"
                 style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.08) transparent' }}
               >
                 {messages.length === 0 ? (
                   <EmptyState onPrompt={p => { setInput(p); setTimeout(() => { textareaRef.current?.focus(); resizeTextarea(); }, 50); }} />
                 ) : (
-                  <div className="space-y-5 max-w-3xl mx-auto pb-4">
+                  <div className="space-y-5 max-w-3xl mx-auto pb-4 px-0 sm:px-0">
                     <AnimatePresence initial={false}>
                       {messages.map(msg => (
                         <MessageBubble
@@ -1029,7 +1062,7 @@ export default function NovaApp() {
               </div>
 
               {/* Input area */}
-              <div className="shrink-0 border-t border-white/8 bg-zinc-900/60 px-4 py-3">
+              <div className="shrink-0 border-t border-white/8 bg-zinc-900/60 px-2 sm:px-4 py-2.5 sm:py-3">
                 <AnimatePresence>
                   {(isRAGSearching || ragSourceCount > 0 || preflightStatus) && (
                     <RAGIndicator isSearching={isRAGSearching} sources={ragSourceCount} status={preflightStatus} />
@@ -1054,7 +1087,7 @@ export default function NovaApp() {
                   </div>
                 )}
 
-                <div className="flex items-end gap-2 max-w-3xl mx-auto">
+                <div className="flex items-end gap-1.5 sm:gap-2 max-w-3xl mx-auto">
                   <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
                   <button
                     onClick={() => fileInputRef.current?.click()}

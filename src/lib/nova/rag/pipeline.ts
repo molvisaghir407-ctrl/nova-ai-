@@ -128,7 +128,7 @@ async function wikipediaSearch(query: string, signal?: AbortSignal): Promise<Sou
 // ── Layer 1c: Hacker News (Algolia API) ──────────────────────────────────────
 async function hackerNewsSearch(query: string, signal?: AbortSignal): Promise<Source[]> {
   try {
-    const url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=story&hitsPerPage=6&numericFilters=points>10`;
+    const url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=story&hitsPerPage=8&numericFilters=points>5`;
     const res = await fetch(url, { signal: signal ?? AbortSignal.timeout(4000) });
     if (!res.ok) return [];
     const data = await res.json() as {
@@ -149,6 +149,36 @@ async function hackerNewsSearch(query: string, signal?: AbortSignal): Promise<So
           : 'news.ycombinator.com',
         date: h.created_at ?? '',
       }));
+  } catch { return []; }
+}
+
+// ── Layer 1e: Reddit search (public JSON API) ─────────────────────────────────
+async function redditSearch(query: string, signal?: AbortSignal): Promise<Source[]> {
+  try {
+    const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=relevance&limit=8&t=year&type=link`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'NovaRAG/3.0 (research assistant)' },
+      signal: signal ?? AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json() as {
+      data?: { children?: Array<{ data?: { title?: string; url?: string; selftext?: string; subreddit?: string; created_utc?: number; score?: number } }> }
+    };
+    return (data.data?.children ?? [])
+      .filter(c => c.data?.title && (c.data.score ?? 0) > 3)
+      .slice(0, 6)
+      .map((c, i) => {
+        const d = c.data!;
+        const sub = d.subreddit ?? 'reddit';
+        return {
+          id: i + 1,
+          title: `r/${sub}: ${d.title ?? ''}`,
+          url: d.url ?? `https://reddit.com`,
+          snippet: (d.selftext ?? '').replace(/\n+/g, ' ').slice(0, 280) || `Reddit discussion in r/${sub}`,
+          domain: `reddit.com/r/${sub}`,
+          date: d.created_utc ? new Date(d.created_utc * 1000).toISOString() : '',
+        };
+      });
   } catch { return []; }
 }
 
@@ -307,35 +337,44 @@ export async function runRAGPipeline(message: string): Promise<RAGPackage> {
   // ── LAYER 1: Parallel multi-source retrieval ───────────────────────────────
   const promises: Array<Promise<Source[]>> = [
     // Primary search
-    ddgSearch(message, 10, ac.signal),
+    ddgSearch(message, 15, ac.signal),
     // Wikipedia — always for factual grounding
     wikipediaSearch(message, ac.signal),
   ];
 
-  // Intent-specific sources
+  // Intent-specific sources — always add Reddit for community perspective
+  promises.push(redditSearch(message, ac.signal));
+
   if (intent === 'weather') {
     promises.push(weatherFetch(message, ac.signal));
   } else if (intent === 'code' || intent === 'howto') {
     // Domain-specialized searches for technical queries
-    promises.push(ddgSearch(`${message} site:stackoverflow.com`, 5, ac.signal));
-    promises.push(ddgSearch(`${message} site:github.com`, 4, ac.signal));
+    promises.push(ddgSearch(`${message} site:stackoverflow.com`, 8, ac.signal));
+    promises.push(ddgSearch(`${message} site:github.com`, 6, ac.signal));
     promises.push(hackerNewsSearch(message, ac.signal));
+    promises.push(ddgSearch(`${message} tutorial documentation`, 5, ac.signal));
   } else if (['news', 'finance', 'sports'].includes(intent)) {
     promises.push(hackerNewsSearch(message, ac.signal));
-    promises.push(ddgSearch(`${message} news 2026`, 6, ac.signal));
+    promises.push(ddgSearch(`${message} news 2026`, 8, ac.signal));
+    promises.push(ddgSearch(`${message} latest update`, 6, ac.signal));
   } else if (intent === 'science' || intent === 'medical') {
     const specSources = SPECIALIZED_SOURCES[intent] ?? [];
     if (specSources.length > 0) {
-      promises.push(ddgSearch(`${message} ${specSources[0] ?? ''}`, 5, ac.signal));
+      promises.push(ddgSearch(`${message} ${specSources[0] ?? ''}`, 6, ac.signal));
     }
-    promises.push(ddgSearch(`${message} research 2025 2026`, 5, ac.signal));
+    promises.push(ddgSearch(`${message} research study 2025 2026`, 6, ac.signal));
     promises.push(hackerNewsSearch(message, ac.signal));
+    promises.push(ddgSearch(`${message} site:pubmed.ncbi.nlm.nih.gov`, 4, ac.signal));
   } else if (intent === 'comparison') {
     // Search both sides of the comparison
     promises.push(hackerNewsSearch(message, ac.signal));
-    promises.push(ddgSearch(`${message} comparison review`, 6, ac.signal));
+    promises.push(ddgSearch(`${message} comparison review pros cons`, 8, ac.signal));
+  } else if (intent === 'history') {
+    promises.push(ddgSearch(`${message} site:britannica.com`, 4, ac.signal));
+    promises.push(ddgSearch(`${message} historical context`, 5, ac.signal));
   } else {
     promises.push(hackerNewsSearch(message, ac.signal));
+    promises.push(ddgSearch(`${message} explained in depth`, 5, ac.signal));
   }
 
   // Expanded query variants
@@ -382,7 +421,7 @@ export async function runRAGPipeline(message: string): Promise<RAGPackage> {
   }
 
   // ── LAYER 2: Page content fetch for top non-wiki results ──────────────────
-  const fetchCount = complexity === 'research' ? 4 : complexity === 'complex' ? 3 : 2;
+  const fetchCount = complexity === 'research' ? 6 : complexity === 'complex' ? 4 : 3;
   const topUrls = allSources
     .filter(s => !s.url.includes('wikipedia.org'))
     .slice(0, fetchCount)
@@ -405,10 +444,10 @@ export async function runRAGPipeline(message: string): Promise<RAGPackage> {
   const ranked = await rerankSources(message, allSources);
 
   // ── LAYER 4: Domain diversity ─────────────────────────────────────────────
-  const diverse = enforceDiversity(ranked, 3);
+  const diverse = enforceDiversity(ranked, 4);
 
   // Final slice — research gets more sources
-  const maxSources = complexity === 'research' ? 14 : complexity === 'complex' ? 10 : 8;
+  const maxSources = complexity === 'research' ? 20 : complexity === 'complex' ? 15 : 10;
   const finalSources = diverse.slice(0, maxSources);
 
   // Cache (skip live intents)

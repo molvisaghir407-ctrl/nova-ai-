@@ -149,6 +149,30 @@ select:focus-visible {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   WORD-BY-WORD STREAMING ANIMATION
+   Each new word token fades + slides in individually.
+   Only newly-created DOM nodes get this class (stable key trick).
+═══════════════════════════════════════════════════════════════ */
+@keyframes word-fade-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.word-appear {
+  animation: word-fade-in 0.1s cubic-bezier(0.4, 0, 0.2, 1) both;
+  will-change: opacity, transform;
+  display: inline;
+}
+
+/* Smooth fade when switching from streaming → markdown render */
+@keyframes md-reveal {
+  from { opacity: 0.6; }
+  to   { opacity: 1; }
+}
+.nova-md-revealed {
+  animation: md-reveal 0.2s ease-out both;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    SMOOTH STREAMING TEXT APPEARANCE
    New paragraphs / headings fade-slide in as they are created
    Only active during streaming (.is-streaming parent)
@@ -169,6 +193,28 @@ select:focus-visible {
 .is-streaming .nova-li {
   animation: nova-text-in 0.18s cubic-bezier(0.4, 0, 0.2, 1) both;
   will-change: opacity, transform;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE SIDEBAR OVERLAY
+   On small screens the sidebar slides over content with backdrop.
+═══════════════════════════════════════════════════════════════ */
+.mobile-sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.mobile-sidebar-fixed {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  height: 100dvh;
+  z-index: 40;
+  box-shadow: 8px 0 32px rgba(0, 0, 0, 0.5);
 }
 
 /* ═══════════════════════════════════════════════════════════════

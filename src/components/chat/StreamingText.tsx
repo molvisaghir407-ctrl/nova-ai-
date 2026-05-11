@@ -1,5 +1,5 @@
 'use client';
-import { memo } from 'react';
+import { memo, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CodeBlock } from './CodeBlock';
@@ -99,24 +99,61 @@ const MD: Components = {
 };
 
 /**
- * Nova streaming text renderer — Claude-style live markdown.
+ * Nova streaming text renderer — word-by-word live animation.
  *
- * Renders markdown in real-time during streaming. New paragraphs and headings
- * fade-slide in as they appear (via CSS animation on .is-streaming). Content
- * is stable — React reconciles, so existing nodes don't re-animate.
+ * TWO-PHASE rendering:
+ *   1. STREAMING  → plain text with word-by-word animation.
+ *      Each word token is a <span key={i}> so React only creates NEW
+ *      DOM nodes for newly-arrived words — they get the `word-appear`
+ *      CSS animation. Previously rendered nodes are stable and silent.
+ *
+ *   2. DONE       → full ReactMarkdown render (headings, code blocks,
+ *      tables, etc.) with a soft fade-in reveal.
+ *
+ * This eliminates the "glitch / flicker" caused by ReactMarkdown
+ * re-parsing the entire AST on every streamed character.
  */
 export const StreamingText = memo(
   function StreamingText({ content, isStreaming }: StreamingTextProps) {
+    // Tracks how many tokens were shown at the previous render.
+    // New tokens (index >= prevCount) are DOM-new → get the animation.
+    const prevTokenCountRef = useRef(0);
+
+    if (isStreaming) {
+      // Split on whitespace, preserving the whitespace tokens so layout
+      // is identical to normal text flow (no words run together).
+      const tokens = content.split(/(\s+)/);
+      const prevCount = prevTokenCountRef.current;
+      prevTokenCountRef.current = tokens.length;
+
+      return (
+        <div className="text-sm leading-7 text-zinc-100 whitespace-pre-wrap break-words min-h-[1.4em]">
+          {tokens.map((token, i) => (
+            <span
+              key={i}
+              // Only non-whitespace NEW tokens get the entrance animation.
+              // Whitespace tokens always appear instantly (avoids jitter).
+              className={i >= prevCount && token.trim().length > 0 ? 'word-appear' : undefined}
+            >
+              {token}
+            </span>
+          ))}
+          <span className="claude-cursor" aria-hidden />
+        </div>
+      );
+    }
+
+    // Streaming finished — reset token counter for the next streaming session.
+    prevTokenCountRef.current = 0;
+
+    // Render full markdown with a subtle reveal fade.
     return (
-      <div className={cn('nova-streaming-root text-sm leading-7', isStreaming && 'is-streaming')}>
+      <div className={cn('nova-streaming-root text-sm leading-7 nova-md-revealed')}>
         <div className="prose prose-invert prose-sm max-w-none nova-md">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD}>
             {content}
           </ReactMarkdown>
         </div>
-
-        {/* Blinking cursor — only while streaming */}
-        {isStreaming && <span className="claude-cursor" aria-hidden />}
       </div>
     );
   },
