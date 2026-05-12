@@ -1,7 +1,7 @@
 {
   "framework": "nextjs",
-  "buildCommand": "next build",
-  "installCommand": "bun install 2>/dev/null || npm install --legacy-peer-deps",
+  "buildCommand": "PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 next build",
+  "installCommand": "npm install",
   "regions": [
     "sin1"
   ],
