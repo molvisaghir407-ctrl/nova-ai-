@@ -1,8 +1,9 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { memoryManager } from '@/lib/nova/memory';
 import { logger } from '@/lib/nova/logger';
 import { db } from '@/lib/db';
-
 // GET - Retrieve memories
 export async function GET(req: NextRequest) {
   try {

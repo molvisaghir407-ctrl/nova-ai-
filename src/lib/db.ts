@@ -2,10 +2,17 @@ import { PrismaClient } from '@prisma/client';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
-export const db =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'warn', 'error'] : ['warn', 'error'],
-  });
+function getDb() {
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = new PrismaClient({
+      log: process.env.NODE_ENV === 'development' ? ['query', 'warn', 'error'] : ['warn', 'error'],
+    });
+  }
+  return globalForPrisma.prisma;
+}
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db;
+export const db = new Proxy({} as PrismaClient, {
+  get(_, prop) {
+    return (getDb() as any)[prop];
+  },
+});

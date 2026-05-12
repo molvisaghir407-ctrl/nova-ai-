@@ -62,6 +62,7 @@ export interface SubagentResult {
   results: Source[];
   durationMs: number;
   success: boolean;
+  error?: string;
 }
 
 export interface RAGContext {
