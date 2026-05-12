@@ -1,7 +1,7 @@
 {
   "framework": "nextjs",
-  "buildCommand": "npx prisma generate --no-engine 2>/dev/null | true; next build",
-  "installCommand": "bun install --frozen-lockfile 2>/dev/null || npm install --legacy-peer-deps",
+  "buildCommand": "next build",
+  "installCommand": "bun install 2>/dev/null || npm install --legacy-peer-deps",
   "regions": [
     "sin1"
   ],
