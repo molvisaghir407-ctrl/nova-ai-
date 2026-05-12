@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ExtMessage, ConversationMeta, Source } from '@/types/nova.types';
+import type { ExtMessage, ConversationMeta, Source, ArtifactData } from '@/types/nova.types';
 
 export type { ExtMessage, Source };
 
@@ -16,9 +16,12 @@ interface NovaState {
   memories: Memory[];
   settings: Settings;
   systemStats: { uptime: number; messageCount: number; memoryCount: number; taskCount: number };
+  isThinkingMode: boolean;
+  isStreaming: boolean;
+  activeArtifacts: ArtifactData[];
 
   addMessage(msg: Omit<ExtMessage, 'id' | 'timestamp'>): string;
-  updateLastMessage(id: string, content: string, thinking?: string, duration?: number, extra?: { sources?: Source[]; ragUsed?: boolean; thinkingDuration?: number }): void;
+  updateLastMessage(id: string, content: string, thinking?: string, duration?: number, extra?: { sources?: Source[]; ragUsed?: boolean; thinkingDuration?: number; artifacts?: ArtifactData[]; isThinking?: boolean }): void;
   clearMessages(): void;
   setTasks(tasks: Task[]): void;
   addTask(task: Task): void;
@@ -28,30 +31,38 @@ interface NovaState {
   setSettings(settings: Settings): void;
   updateSettings(updates: Partial<Settings>): void;
   setSystemStats(stats: Partial<NovaState['systemStats']>): void;
+  setThinkingMode(enabled: boolean): void;
+  setStreaming(active: boolean): void;
+  setActiveArtifacts(artifacts: ArtifactData[]): void;
+  addArtifact(artifact: ArtifactData): void;
 }
 
-export const useNovaStore = create<NovaState>(set => ({
+export const useNovaStore = create<NovaState>((set) => ({
   messages: [],
   sessions: [],
   tasks: [],
   memories: [],
   settings: { wakeWord: 'Hey Nova', voiceEnabled: true, ttsEnabled: true, ttsSpeed: 1.0, ttsVoice: 'default', theme: 'dark', language: 'en-US', proactiveEnabled: true, offlineMode: false, logLevel: 'info', safetyLevel: 'balanced' },
   systemStats: { uptime: 0, messageCount: 0, memoryCount: 0, taskCount: 0 },
+  isThinkingMode: false,
+  isStreaming: false,
+  activeArtifacts: [],
 
   addMessage(msg) {
     const id = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    set(s => ({ messages: [...s.messages, { ...msg, id, timestamp: new Date() }], systemStats: { ...s.systemStats, messageCount: s.systemStats.messageCount + 1 } }));
+    set((s) => ({ messages: [...s.messages, { ...msg, id, timestamp: new Date() }], systemStats: { ...s.systemStats, messageCount: s.systemStats.messageCount + 1 } }));
     return id;
   },
 
   updateLastMessage(id, content, thinking, duration, extra) {
-    set(s => {
+    set((s) => {
       const msgs = [...s.messages];
-      const idx = msgs.findIndex(m => m.id === id);
+      const idx = msgs.findIndex((m) => m.id === id);
       if (idx === -1) return {};
       const msg = msgs[idx]!;
       msgs[idx] = {
-        ...msg, content,
+        ...msg,
+        content,
         thinking: thinking !== undefined ? (thinking || msg.thinking) : msg.thinking,
         duration: duration ?? msg.duration,
         ...(extra ?? {}),
@@ -60,13 +71,17 @@ export const useNovaStore = create<NovaState>(set => ({
     });
   },
 
-  clearMessages: () => set(s => ({ messages: [], systemStats: { ...s.systemStats, messageCount: 0 } })),
-  setTasks: tasks => set(s => ({ tasks, systemStats: { ...s.systemStats, taskCount: tasks.length } })),
-  addTask: task => set(s => ({ tasks: [task, ...s.tasks] })),
-  updateTask: (id, updates) => set(s => ({ tasks: s.tasks.map(t => t.id === id ? { ...t, ...updates } : t) })),
-  setMemories: memories => set(s => ({ memories, systemStats: { ...s.systemStats, memoryCount: memories.length } })),
-  addMemory: memory => set(s => ({ memories: [memory, ...s.memories] })),
-  setSettings: settings => set({ settings }),
-  updateSettings: updates => set(s => ({ settings: { ...s.settings, ...updates } })),
-  setSystemStats: stats => set(s => ({ systemStats: { ...s.systemStats, ...stats } })),
+  clearMessages: () => set((s) => ({ messages: [], systemStats: { ...s.systemStats, messageCount: 0 } })),
+  setTasks: (tasks) => set((s) => ({ tasks, systemStats: { ...s.systemStats, taskCount: tasks.length } })),
+  addTask: (task) => set((s) => ({ tasks: [task, ...s.tasks] })),
+  updateTask: (id, updates) => set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...updates } : t)) })),
+  setMemories: (memories) => set((s) => ({ memories, systemStats: { ...s.systemStats, memoryCount: memories.length } })),
+  addMemory: (memory) => set((s) => ({ memories: [memory, ...s.memories] })),
+  setSettings: (settings) => set({ settings }),
+  updateSettings: (updates) => set((s) => ({ settings: { ...s.settings, ...updates } })),
+  setSystemStats: (stats) => set((s) => ({ systemStats: { ...s.systemStats, ...stats } })),
+  setThinkingMode: (enabled) => set({ isThinkingMode: enabled }),
+  setStreaming: (active) => set({ isStreaming: active }),
+  setActiveArtifacts: (artifacts) => set({ activeArtifacts: artifacts }),
+  addArtifact: (artifact) => set((s) => ({ activeArtifacts: [...s.activeArtifacts, artifact] })),
 }));

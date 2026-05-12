@@ -82,49 +82,80 @@
 body { background: var(--background); color: var(--foreground); }
 
 /* ═══════════════════════════════════════════════════════════════
-   GLOBAL CURSOR & INTERACTIVE STATES
-   Every clickable element gets pointer cursor + smooth transition
+   DEEPSEEK THINKING — BRAIN NEURON ANIMATION
+   Pulsing neural network effect during reasoning
 ═══════════════════════════════════════════════════════════════ */
-button,
-[role="button"],
-a,
-label[for],
-select,
-summary {
-  cursor: pointer;
+@keyframes neuron-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
 }
 
-button:disabled,
-[disabled] {
-  cursor: not-allowed;
-  opacity: 0.5;
+@keyframes synapse-flow {
+  0% { stroke-dashoffset: 20; opacity: 0; }
+  50% { opacity: 0.8; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
 }
 
-/* All interactive elements get GPU-accelerated transitions */
-button,
-a,
-[role="button"] {
-  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
-  transition-duration: 150ms;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+@keyframes brain-glow {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(139,92,246,0.3)); }
+  50% { filter: drop-shadow(0 0 12px rgba(139,92,246,0.6)); }
 }
 
-/* Subtle press feedback */
-button:not(:disabled):active,
-[role="button"]:not(:disabled):active {
-  transform: scale(0.97);
+.neuron-dot {
+  animation: neuron-pulse 1.2s ease-in-out infinite;
+}
+.neuron-dot:nth-child(2) { animation-delay: 0.15s; }
+.neuron-dot:nth-child(3) { animation-delay: 0.3s; }
+.neuron-dot:nth-child(4) { animation-delay: 0.45s; }
+.neuron-dot:nth-child(5) { animation-delay: 0.6s; }
+.neuron-dot:nth-child(6) { animation-delay: 0.75s; }
+.neuron-dot:nth-child(7) { animation-delay: 0.9s; }
+
+.brain-container {
+  animation: brain-glow 2s ease-in-out infinite;
 }
 
-/* Focus ring — violet-themed */
-button:focus-visible,
-a:focus-visible,
-[role="button"]:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible {
-  outline: 2px solid rgba(167, 139, 250, 0.6);
-  outline-offset: 2px;
-  border-radius: 8px;
+/* ═══════════════════════════════════════════════════════════════
+   DEEPSEEK REASONING CHAIN — expanding/collapsing
+═══════════════════════════════════════════════════════════════ */
+@keyframes reasoning-expand {
+  from { max-height: 0; opacity: 0; }
+  to { max-height: 800px; opacity: 1; }
+}
+
+@keyframes reasoning-collapse {
+  from { max-height: 800px; opacity: 1; }
+  to { max-height: 0; opacity: 0; }
+}
+
+.reasoning-chain {
+  overflow: hidden;
+  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.3s ease;
+}
+
+.reasoning-chain.expanded {
+  max-height: 800px;
+  opacity: 1;
+}
+
+.reasoning-chain.collapsed {
+  max-height: 0;
+  opacity: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GROK-STYLE WORD ENTRANCE — fast, snappy, premium feel
+═══════════════════════════════════════════════════════════════ */
+@keyframes grok-word-pop {
+  from { opacity: 0; transform: translateY(4px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.grok-word {
+  animation: grok-word-pop 0.12s cubic-bezier(0.22, 1, 0.36, 1) both;
+  display: inline;
+  will-change: opacity, transform;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -144,63 +175,59 @@ select:focus-visible {
 }
 
 @keyframes claude-blink {
-  0%,  45% { opacity: 1; }
+  0%, 45% { opacity: 1; }
   55%, 100% { opacity: 0; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   WORD-BY-WORD STREAMING ANIMATION
-   Each new word token fades + slides in individually.
-   Only newly-created DOM nodes get this class (stable key trick).
+   CLAUDE ARTIFACTS — card-based content containers
 ═══════════════════════════════════════════════════════════════ */
-/* ── Grok-style word entrance: fast fade + 3px upward slide ── */
-@keyframes nova-word-enter {
-  from { opacity: 0; transform: translateY(3px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.nova-word-enter {
-  animation: nova-word-enter 0.14s cubic-bezier(0.22, 1, 0.36, 1) both;
-  will-change: opacity, transform;
-  display: inline;
-}
-/* Keep old class for compat */
-.word-appear {
-  animation: nova-word-enter 0.14s cubic-bezier(0.22, 1, 0.36, 1) both;
-  display: inline;
+.artifact-card {
+  background: rgba(20, 20, 25, 0.95);
+  border: 1px solid rgba(139, 92, 246, 0.15);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* Settled blocks promote from live: soft opacity lift */
-@keyframes nova-settle {
-  from { opacity: 0.75; }
-  to   { opacity: 1; }
-}
-.nova-md > *:last-child {
-  animation: nova-settle 0.18s ease-out both;
+.artifact-card:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.08);
 }
 
-/* Smooth fade-in when full markdown replaces plain text after stream */
-@keyframes md-reveal {
-  from { opacity: 0; transform: translateY(2px); }
-  to   { opacity: 1; transform: translateY(0); }
+.artifact-header {
+  background: rgba(139, 92, 246, 0.06);
+  border-bottom: 1px solid rgba(139, 92, 246, 0.1);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
-.nova-md-revealed {
-  animation: md-reveal 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+.artifact-body {
+  padding: 16px;
+  overflow-x: auto;
+}
+
+.artifact-gallery {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 4px;
+  scroll-snap-type: x mandatory;
+}
+
+.artifact-gallery > * {
+  scroll-snap-align: start;
+  flex-shrink: 0;
 }
 
 /* ═══════════════════════════════════════════════════════════════
    SMOOTH STREAMING TEXT APPEARANCE
-   New paragraphs / headings fade-slide in as they are created
-   Only active during streaming (.is-streaming parent)
 ═══════════════════════════════════════════════════════════════ */
 @keyframes nova-text-in {
-  from {
-    opacity: 0;
-    transform: translateY(3px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .is-streaming .nova-para,
@@ -212,7 +239,6 @@ select:focus-visible {
 
 /* ═══════════════════════════════════════════════════════════════
    MOBILE SIDEBAR OVERLAY
-   On small screens the sidebar slides over content with backdrop.
 ═══════════════════════════════════════════════════════════════ */
 .mobile-sidebar-backdrop {
   position: fixed;
@@ -233,16 +259,15 @@ select:focus-visible {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   NOVA MARKDOWN — clean, readable prose
+   NOVA MARKDOWN — clean, readable prose (Grok-style)
 ═══════════════════════════════════════════════════════════════ */
 .nova-md { max-width: none !important; }
 .nova-md > *:first-child { margin-top: 0 !important; }
-.nova-md > *:last-child  { margin-bottom: 0 !important; }
-.nova-md p  { margin: 0.45em 0; line-height: 1.75; }
+.nova-md > *:last-child { margin-bottom: 0 !important; }
+.nova-md p { margin: 0.45em 0; line-height: 1.75; font-size: 15px; }
 .nova-md pre { margin: 0 !important; background: transparent !important; padding: 0 !important; }
 .nova-md code:not(pre code) { font-size: 0.8em !important; }
 
-/* Ordered lists */
 .nova-md ol,
 .nova-ol {
   counter-reset: nova-ol;
@@ -268,33 +293,17 @@ select:focus-visible {
 .nova-streaming-root { min-height: 1.4em; }
 
 /* ═══════════════════════════════════════════════════════════════
-   THINKING BLOCK ANIMATIONS
+   THINKING BLOCK — shimmer & glow
 ═══════════════════════════════════════════════════════════════ */
-@keyframes orbit-1 {
-  from { transform: rotate(0deg)   translateX(14px) rotate(0deg); }
-  to   { transform: rotate(360deg) translateX(14px) rotate(-360deg); }
-}
-@keyframes orbit-2 {
-  from { transform: rotate(120deg)  translateX(14px) rotate(-120deg); }
-  to   { transform: rotate(480deg)  translateX(14px) rotate(-480deg); }
-}
-@keyframes orbit-3 {
-  from { transform: rotate(240deg)  translateX(14px) rotate(-240deg); }
-  to   { transform: rotate(600deg)  translateX(14px) rotate(-600deg); }
-}
-.orbit-dot-1 { animation: orbit-1 1.4s linear infinite; }
-.orbit-dot-2 { animation: orbit-2 1.4s linear infinite; }
-.orbit-dot-3 { animation: orbit-3 1.4s linear infinite; }
-
 @keyframes think-glow {
-  0%,  100% { box-shadow: 0 0 0   0  rgba(139,92,246,0); }
-  50%        { box-shadow: 0 0 24px 6px rgba(139,92,246,0.12); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(139,92,246,0); }
+  50% { box-shadow: 0 0 24px 6px rgba(139,92,246,0.12); }
 }
 .thinking-glow { animation: think-glow 2.2s ease-in-out infinite; }
 
 @keyframes shimmer {
-  0%   { background-position: -200% center; }
-  100% { background-position:  200% center; }
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
 }
 .thinking-shimmer {
   background: linear-gradient(
@@ -315,7 +324,7 @@ select:focus-visible {
 ═══════════════════════════════════════════════════════════════ */
 @keyframes source-in {
   from { opacity: 0; transform: translateY(5px) scale(0.94); }
-  to   { opacity: 1; transform: translateY(0)   scale(1); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .source-pill { animation: source-in 0.22s cubic-bezier(0.4,0,0.2,1) both; }
 .source-pill:hover { box-shadow: 0 0 0 1px rgba(139,92,246,0.3); }
@@ -324,8 +333,8 @@ select:focus-visible {
    RAG PULSE INDICATOR
 ═══════════════════════════════════════════════════════════════ */
 @keyframes rag-pulse {
-  0%,  100% { opacity: 0.5; }
-  50%        { opacity: 1; }
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }
 .rag-scanning { animation: rag-pulse 1.2s ease-in-out infinite; }
 
@@ -351,8 +360,8 @@ textarea:focus {
    SEND BUTTON — pulse animation while processing
 ═══════════════════════════════════════════════════════════════ */
 @keyframes send-pulse {
-  0%,  100% { box-shadow: 0 0 0 0   rgba(139,92,246,0); }
-  50%        { box-shadow: 0 0 12px 4px rgba(139,92,246,0.3); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(139,92,246,0); }
+  50% { box-shadow: 0 0 12px 4px rgba(139,92,246,0.3); }
 }
 .send-processing { animation: send-pulse 1.5s ease-in-out infinite; }
 
@@ -376,9 +385,9 @@ textarea:focus {
 /* ═══════════════════════════════════════════════════════════════
    SMOOTH SCROLLBAR
 ═══════════════════════════════════════════════════════════════ */
-::-webkit-scrollbar          { width: 4px; height: 4px; }
-::-webkit-scrollbar-track    { background: transparent; }
-::-webkit-scrollbar-thumb    {
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
   background: rgba(255,255,255,0.09);
   border-radius: 999px;
   transition: background 0.2s;
@@ -386,11 +395,11 @@ textarea:focus {
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
 
 /* ═══════════════════════════════════════════════════════════════
-   PAGE TRANSITIONS — subtle fade-in on load
+   PAGE TRANSITIONS
 ═══════════════════════════════════════════════════════════════ */
 @keyframes page-fade-in {
   from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
+  to { opacity: 1; transform: translateY(0); }
 }
 main, aside {
   animation: page-fade-in 0.3s cubic-bezier(0.4, 0, 0.2, 1) both;
@@ -421,6 +430,69 @@ main, aside {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   GPU-COMPOSITED BUBBLE EXPANSION (Grok-style)
+═══════════════════════════════════════════════════════════════ */
+.nova-bubble-inner {
+  contain: layout style;
+  will-change: transform;
+  transition: min-height 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.nova-message-row {
+  contain: layout;
+  will-change: contents;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   THINK BUTTON — active state glow
+═══════════════════════════════════════════════════════════════ */
+.think-button-active {
+  background: rgba(139, 92, 246, 0.15) !important;
+  border-color: rgba(139, 92, 246, 0.4) !important;
+  color: #a78bfa !important;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.15);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   INTERACTIVE STATES
+═══════════════════════════════════════════════════════════════ */
+button, [role="button"], a, label[for], select, summary {
+  cursor: pointer;
+}
+
+button:disabled, [disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+button, a, [role="button"] {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+button:not(:disabled):active, [role="button"]:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+button:focus-visible, a:focus-visible, [role="button"]:focus-visible,
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid rgba(167, 139, 250, 0.6);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SCROLL AREA
+═══════════════════════════════════════════════════════════════ */
+.nova-scroll-area {
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+  will-change: scroll-position;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    BADGE & PILL HOVER
 ═══════════════════════════════════════════════════════════════ */
 .badge-interactive {
@@ -428,108 +500,4 @@ main, aside {
 }
 .badge-interactive:hover {
   transform: translateY(-1px);
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   SMOOTH SCROLL CONTAINER
-   GPU-layer the chat scroll area so height changes don't
-   trigger layout recalculation on the rest of the page.
-═══════════════════════════════════════════════════════════════ */
-.nova-scroll-area {
-  scroll-behavior: smooth;
-  overscroll-behavior: contain;
-  will-change: scroll-position;
-  -webkit-overflow-scrolling: touch; /* smooth momentum on iOS */
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   MESSAGE BUBBLE HEIGHT EXPANSION
-   Wrap new content in a container with a max-height transition
-   so the bubble expands smoothly rather than jumping.
-═══════════════════════════════════════════════════════════════ */
-.nova-bubble-content {
-  transition: max-height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  overflow: hidden;
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   WORD REVEAL — subtle opacity cascade on newly added words
-   Applied only inside .is-streaming so settled messages are static.
-═══════════════════════════════════════════════════════════════ */
-@keyframes word-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.is-streaming .nova-md > p > *:last-child,
-.is-streaming .nova-md > ul > li:last-child,
-.is-streaming .nova-md > ol > li:last-child {
-  animation: word-in 0.12s ease-out both;
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   SMOOTH TEXTAREA AUTO-RESIZE — no height jump
-═══════════════════════════════════════════════════════════════ */
-.nova-textarea {
-  transition: height 0.1s cubic-bezier(0.4, 0, 0.2, 1),
-              border-color 0.15s ease,
-              box-shadow 0.15s ease;
-  overflow-y: hidden;
-}
-
-.nova-textarea:focus {
-  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.4),
-              0 0 16px rgba(139, 92, 246, 0.08);
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   GROK-STYLE SMOOTH BUBBLE EXPANSION
-   The message bubble grows naturally from bottom as content arrives.
-   GPU-composited so layout reflows don't drop frames.
-═══════════════════════════════════════════════════════════════ */
-.nova-bubble-inner {
-  /* Isolate this subtree from the rest of the layout */
-  contain: layout style;
-  /* GPU layer so height change doesn't repaint siblings */
-  will-change: transform;
-  /* Smooth min-height growth */
-  transition: min-height 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* Each new <p> / heading / li in a streaming bubble slides up */
-@keyframes grok-line-enter {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Applied to newly settled ReactMarkdown nodes during streaming */
-.nova-streaming-root .nova-md .nova-para,
-.nova-streaming-root .nova-md .nova-heading,
-.nova-streaming-root .nova-md .nova-li {
-  animation: grok-line-enter 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-/* The live text paragraph slides in from slightly below */
-.nova-streaming-root > p.nova-para {
-  animation: grok-line-enter 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-/* Scroll area: GPU-composited smooth scrolling, elastic overscroll */
-.nova-scroll-area {
-  scroll-behavior: smooth;
-  overscroll-behavior-y: contain;
-  will-change: scroll-position;
-  -webkit-overflow-scrolling: touch;
-}
-
-/* Prevent layout jank when bubble height changes */
-.nova-message-row {
-  contain: layout;
-  will-change: contents;
 }

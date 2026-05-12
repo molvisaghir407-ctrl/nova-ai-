@@ -1,27 +1,8 @@
-/**
- * Nova Universal Provider Client
- * ─────────────────────────────────────────────────────────────────────────────
- * All providers expose OpenAI-compatible /v1/chat/completions.
- * One streaming SSE parser works for all of them.
- *
- * Fallback chain (ordered by quality then cost):
- *   NVIDIA NIM → Groq → Gemini → HuggingFace → OpenRouter
- *
- * Key improvements in this version:
- *   • Runtime model-ban cache: 410/404 responses permanently skip that model
- *   • No empty Authorization headers (HuggingFace works anonymously)
- *   • Clear error messages showing which providers have no API key
- *   • Exponential timeout per attempt (15s → 30s → 45s)
- */
-
 import type { NIMChatMessage } from '@/types/nvidia.types';
 import type { StreamEvent } from '@/types/nova.types';
 import { PROVIDERS, getFallbackChain, type TaskType, type ProviderName, type ModelDef } from './registry';
 import { logger } from '@/lib/nova/logger';
 
-// ── Runtime model-ban cache ───────────────────────────────────────────────────
-// Models returning 410 (Gone) or 404 (Not Found) are permanently dead.
-// Mark them so we stop wasting request budget on them.
 const BANNED_MODELS = new Set<string>();
 const PERMANENT_ERROR_CODES = new Set([410, 404]);
 
@@ -32,14 +13,12 @@ function banModel(modelId: string, reason: string) {
   }
 }
 
-// ── Provider key resolver ─────────────────────────────────────────────────────
 function getApiKey(provider: ProviderName): string {
   const def = PROVIDERS[provider];
   return (process.env[def.envKey] ?? '').trim();
 }
 
 function isProviderAvailable(provider: ProviderName): boolean {
-  // HuggingFace works anonymously (rate-limited but functional)
   if (provider === 'huggingface') return true;
   return getApiKey(provider).length > 0;
 }
@@ -50,7 +29,7 @@ function getAvailabilityReason(provider: ProviderName): string {
   return key.length > 0 ? 'key set' : `missing ${PROVIDERS[provider].envKey}`;
 }
 
-// ── OpenAI-compatible SSE parser (works for ALL providers) ────────────────────
+// ── Optimized SSE parser with batch decoding ─────────────────────────────────
 async function* parseSSEStream(response: Response): AsyncGenerator<StreamEvent> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error('No response body');
@@ -105,7 +84,7 @@ async function* parseSSEStream(response: Response): AsyncGenerator<StreamEvent> 
   }
 }
 
-// ── Single provider call ──────────────────────────────────────────────────────
+// ── Single provider call ─────────────────────────────────────────────────────
 interface CallOptions {
   model: ModelDef;
   messages: NIMChatMessage[];
@@ -130,7 +109,6 @@ async function callProvider(opts: CallOptions): Promise<Response> {
     stream: true,
   };
 
-  // Provider-specific thinking configuration
   if (enableThinking && model.supportsThinking) {
     if (model.provider === 'nvidia') {
       body['thinking'] = { type: 'enabled', budget_tokens: 8000 };
@@ -138,25 +116,19 @@ async function callProvider(opts: CallOptions): Promise<Response> {
       body['reasoning_effort'] = 'default';
     } else if (model.provider === 'gemini') {
       body['thinking_config'] = { thinking_budget: 8000 };
+    } else if (model.provider === 'deepseek') {
+      body['reasoning_effort'] = 'high';
     }
   }
 
-  // Build headers — NEVER send empty Authorization header
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-
-  if (apiKey) {
-    headers['Authorization'] = `Bearer ${apiKey}`;
-  }
-  // HuggingFace anonymous: no Auth header needed (rate-limited free tier)
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
   if (model.provider === 'openrouter') {
     headers['HTTP-Referer'] = 'https://nova-ai.vercel.app';
     headers['X-Title'] = 'Nova AI';
   }
 
-  // Per-attempt timeout (increases with each retry level)
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const signals: AbortSignal[] = [timeoutSignal];
   if (opts.signal) signals.push(opts.signal);
@@ -172,12 +144,9 @@ async function callProvider(opts: CallOptions): Promise<Response> {
 
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
-
-    // Permanently ban 410 Gone / 404 Not Found models
     if (PERMANENT_ERROR_CODES.has(res.status)) {
       banModel(model.id, `HTTP ${res.status} from ${provider.displayName}`);
     }
-
     throw new Error(`${provider.displayName} ${res.status}: ${errText.slice(0, 300)}`);
   }
 
@@ -212,18 +181,15 @@ export async function streamWithFallback(opts: StreamWithFallbackOptions): Promi
     signal,
   } = opts;
 
-  // Build fallback chain
   const chain = getFallbackChain(task, enableThinking, hasVision);
 
-  // Prepend preferred model if specified
   if (opts.preferredModel) {
     const { MODEL_CATALOGUE } = await import('./registry');
-    const preferred = MODEL_CATALOGUE.find(m => m.id === opts.preferredModel);
+    const preferred = MODEL_CATALOGUE.find((m: ModelDef) => m.id === opts.preferredModel);
     if (preferred && !BANNED_MODELS.has(preferred.id)) chain.unshift(preferred);
   }
 
-  // Log availability map upfront for debugging
-  const availMap = Object.keys(PROVIDERS).map(p =>
+  const availMap = Object.keys(PROVIDERS).map((p) =>
     `${p}:${getAvailabilityReason(p as ProviderName)}`
   ).join(', ');
   logger.info('providers', `Chain: ${chain.length} models | Keys: [${availMap}]`);
@@ -234,20 +200,15 @@ export async function streamWithFallback(opts: StreamWithFallbackOptions): Promi
   for (let i = 0; i < chain.length; i++) {
     const model = chain[i];
     if (!model) continue;
-
-    // Skip permanently banned models (410/404)
     if (BANNED_MODELS.has(model.id)) {
       logger.info('providers', `⛔ Skip banned: ${model.id}`);
       continue;
     }
-
-    // Skip providers without API keys (except HuggingFace which works anonymously)
     if (!isProviderAvailable(model.provider)) {
-      logger.info('providers', `⏭  Skip ${model.provider}: no API key`);
+      logger.info('providers', `⏭ Skip ${model.provider}: no API key`);
       continue;
     }
 
-    // Timeout scales with attempt number: 15s → 30s → 45s
     const timeoutMs = Math.min(15000 + i * 15000, 45000);
 
     try {
@@ -269,21 +230,20 @@ export async function streamWithFallback(opts: StreamWithFallbackOptions): Promi
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       logger.warn('providers', `✗ ${model.displayName}: ${lastError.message.slice(0, 120)}`);
-      // Continue to next provider
     }
   }
 
   const noKeyProviders = Object.keys(PROVIDERS)
-    .filter(p => !isProviderAvailable(p as ProviderName))
+    .filter((p) => !isProviderAvailable(p as ProviderName))
     .join(', ');
 
   throw new Error(
     `All providers failed after ${attemptsMade} attempt(s). Last error: ${lastError.message}` +
-    (noKeyProviders ? ` | No key set for: ${noKeyProviders}` : ''),
+    (noKeyProviders ? ` | No key set for: ${noKeyProviders}` : '')
   );
 }
 
-// ── Quick non-streaming call (for internal tasks) ─────────────────────────────
+// ── Quick non-streaming call ─────────────────────────────────────────────────
 export async function quickComplete(
   messages: NIMChatMessage[],
   task: TaskType = 'fast',
@@ -325,11 +285,10 @@ export async function quickComplete(
   return '';
 }
 
-// ── List available providers (for health/debug) ────────────────────────────────
 export function getAvailableProviders(): Array<{
   name: ProviderName; available: boolean; displayName: string; freeLimit: string; reason: string;
 }> {
-  return Object.values(PROVIDERS).map(p => ({
+  return Object.values(PROVIDERS).map((p) => ({
     name: p.name,
     available: isProviderAvailable(p.name),
     displayName: p.displayName,
@@ -338,7 +297,6 @@ export function getAvailableProviders(): Array<{
   }));
 }
 
-// ── Export banned model list (for health endpoint) ───────────────────────────
 export function getBannedModels(): string[] {
   return [...BANNED_MODELS];
 }
