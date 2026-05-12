@@ -444,7 +444,12 @@ export async function runRAGPipeline(
   const isLive = ['news', 'weather', 'finance', 'sports'].includes(intent);
 
   // ── LLM Query Rewriting (fast model, parallel with cache check) ──────────
-  const rewritePromise = rewriteQuery(message);
+  // Use conversation history to resolve vague references ("it", "that", "they")
+  const resolvedMessage = resolveConversationalQuery(message, recentHistory);
+  const conversationCtx = recentHistory.slice(-4)
+    .map(m => `${m.role}: ${String(m.content).slice(0, 200)}`)
+    .join('\n');
+  const rewritePromise = rewriteQuery(resolvedMessage, conversationCtx);
 
   // Cache check (skip for live/real-time)
   if (!isLive) {
@@ -470,15 +475,77 @@ export async function runRAGPipeline(
   const searchMessage = rewrite.rewrittenQuery || message;
   const expanded = allQueries(rewrite);
 
+  // Bug 6 fix: skip web search for purely conversational messages (greetings, thanks)
+  if (rewrite.isConversational) {
+    return {
+      sources       : [],
+      intent,
+      subqueries,
+      fromCache     : false,
+      durationMs    : Date.now() - pipelineStart,
+      searchQuery   : message,
+      kgContext     : '',
+      vectorSnippets: [],
+      rewrittenQuery: message,
+      hops          : 1,
+    };
+  }
+
   const ac = new AbortController();
-  // Hard timeout scales with complexity
-  const timeoutMs = complexity === 'research' ? 14000 : complexity === 'complex' ? 10000 : 8000;
+  // Hard timeout scales with complexity — research gets more time for multi-hop
+  const timeoutMs = complexity === 'research' ? 18000 : complexity === 'complex' ? 12000 : 8000;
   const globalTimer = setTimeout(() => ac.abort(), timeoutMs);
 
   // ── LAYER 0b: Vector chunk search (Qdrant) — runs in parallel ─────────────
   const vectorSearchPromise = searchChunks(searchMessage, 6).catch(() => []);
 
-  // ── LAYER 1: Parallel multi-source retrieval ───────────────────────────────
+  // ── Bug 5 fix: Multi-hop reasoning for research/complex queries ───────────
+  // For deep queries: run multi-hop (2-3 hops) instead of single-pass search
+  if (complexity === 'research' || complexity === 'complex') {
+    const hopCount: 2 | 3 = complexity === 'research' ? 3 : 2;
+    try {
+      const { multiHopSearch } = await import('./multihop');
+      const hopResult = await multiHopSearch(rewrite, hopCount, ac.signal);
+      clearTimeout(globalTimer);
+
+      if (hopResult.sources.length >= 3) {
+        // Multi-hop succeeded — rank and return its sources
+        const ranked = await rerankSources(message, hopResult.sources);
+        const diverse = enforceDiversity(ranked, 4);
+        const maxSources = hopCount === 3 ? 20 : 15;
+        const finalSources = diverse.slice(0, maxSources);
+
+        if (!isLive) void kvSet(cacheKey(message), finalSources);
+
+        const [kgContext, vectorHits] = await Promise.all([
+          buildKGContext(searchMessage).catch(() => ''),
+          vectorSearchPromise,
+        ]);
+        const vectorSnippets = vectorHits.map(h =>
+          `[Vector] ${h.payload.domain}: ${h.payload.text.slice(0, 300)}`
+        );
+
+        return {
+          sources       : finalSources,
+          intent,
+          subqueries,
+          fromCache     : false,
+          durationMs    : Date.now() - pipelineStart,
+          searchQuery   : searchMessage,
+          kgContext,
+          vectorSnippets,
+          rewrittenQuery: searchMessage,
+          hops          : hopResult.totalHops,
+        };
+      }
+      // If multi-hop found < 3 sources, fall through to standard pipeline
+    } catch {
+      // Multi-hop failed — fall through to standard single-pass pipeline
+      clearTimeout(globalTimer);
+    }
+  }
+
+  // ── LAYER 1: Standard parallel multi-source retrieval ─────────────────────
   const promises: Array<Promise<Source[]>> = [
     // Primary search with REWRITTEN query
     ddgSearch(searchMessage, 15, ac.signal),
@@ -486,6 +553,12 @@ export async function runRAGPipeline(
     expanded.length > 1 ? ddgSearch(expanded[1] ?? message, 8, ac.signal) : Promise.resolve([]),
     // Wikipedia — always for factual grounding
     wikipediaSearch(searchMessage, ac.signal),
+    // DDG instant answer (fast factual lookup — definitions, calculations, etc.)
+    ddgInstantAnswer(searchMessage, ac.signal),
+    // Stack Exchange for technical questions
+    intent === 'code' || intent === 'howto'
+      ? stackExchangeSearch(searchMessage, ac.signal)
+      : Promise.resolve([]),
   ];
 
   // Intent-specific sources — always add Reddit for community perspective
@@ -677,6 +750,18 @@ export function buildRichContext(pkg: RAGPackage): string {
   parts.push('> **Cite sources inline as [1], [2], etc.** Prefer most recent & authoritative sources.');
   parts.push('> If sources contradict each other, acknowledge the discrepancy.');
   parts.push('---');
+
+  // ── Inject Knowledge Graph entity context ─────────────────────────────────
+  if (pkg.kgContext) {
+    parts.push('', pkg.kgContext, '');
+  }
+
+  // ── Inject top vector-store chunks (long-term knowledge base) ─────────────
+  if (pkg.vectorSnippets.length) {
+    parts.push('### Long-term Knowledge Base (Vector Store)');
+    for (const s of pkg.vectorSnippets) parts.push(s);
+    parts.push('');
+  }
 
   return parts.filter(p => p !== undefined).join('\n');
 }

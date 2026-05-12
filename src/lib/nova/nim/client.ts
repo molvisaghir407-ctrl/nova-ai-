@@ -110,7 +110,7 @@ export async function chatComplete(
 // ── Embed texts ───────────────────────────────────────────────────────────────
 export async function embed(
   texts: string[],
-  model = NIM_MODELS.LLAMA_VISION_11B,
+  model: string = NIM_MODELS.NV_EMBED_V2,
   signal?: AbortSignal
 ): Promise<number[][]> {
   const res = await nimFetch('/embeddings', { model, input: texts }, signal);

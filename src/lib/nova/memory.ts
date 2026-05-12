@@ -1,4 +1,10 @@
 import { logger } from './logger';
+import {
+  upsertMemory as qdrantUpsert,
+  searchMemory as qdrantSearch,
+  deleteMemory as qdrantDelete,
+  type MemoryPoint,
+} from '@/lib/nova/rag/qdrant';
 
 export interface MemoryEntry {
   id: string;
@@ -187,12 +193,6 @@ export const memoryManager = new MemoryManager();
 // ═══════════════════════════════════════════════════════════════════════════
 // SEMANTIC MEMORY LAYER — Qdrant-backed vector memory
 // ═══════════════════════════════════════════════════════════════════════════
-import {
-  upsertMemory as qdrantUpsert,
-  searchMemory as qdrantSearch,
-  deleteMemory as qdrantDelete,
-  type MemoryPoint,
-} from '@/lib/nova/rag/qdrant';
 
 let _memIdCounter = Date.now();
 function newMemId(): string { return `mem_${(++_memIdCounter).toString(36)}`; }

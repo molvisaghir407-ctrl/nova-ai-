@@ -103,19 +103,28 @@ async function buildPreflightContainer(
 
   logger.info('chat', `Intent: ${intent} | Complexity: ${complexity} | RAG: ${needRAG}`);
 
-  const [historyResult, memResult, ragResult] = await Promise.allSettled([
+  // Stage 1: fetch history + memory in parallel (RAG needs history for query resolution)
+  const [historyResult, memResult, semMemResult] = await Promise.allSettled([
     sessionStore.get(sessionKey),
     includeContext ? memoryManager.buildContextPrompt(6) : Promise.resolve(''),
-    needRAG ? runRAGPipeline(message, (historyResult.status === 'fulfilled' ? historyResult.value : []) as Array<{ role: string; content: string }>) : Promise.resolve(null),
+    // Semantic memory: query-relevant recall from Qdrant vector store
+    includeContext ? semanticMemory.buildSemanticContext(message, 5) : Promise.resolve(''),
   ]);
 
-  const history = historyResult.status === 'fulfilled' ? historyResult.value : [];
-  const memCtx  = memResult.status === 'fulfilled' ? memResult.value : '';
-  const ragPackage = ragResult.status === 'fulfilled' ? ragResult.value : null;
+  const history   = historyResult.status === 'fulfilled' ? historyResult.value : [];
+  const memCtx    = memResult.status === 'fulfilled' ? memResult.value : '';
+  const semMemCtx = semMemResult.status === 'fulfilled' ? semMemResult.value : '';
+
+  // Stage 2: run RAG now that history is resolved (enables conversational query expansion)
+  const ragResult = needRAG
+    ? await runRAGPipeline(message, history as Array<{ role: string; content: string }>).catch(() => null)
+    : null;
+  const ragPackage = ragResult;
 
   let systemPrompt = NOVA_SYSTEM;
   if (includeContext) systemPrompt += `\n\n[Time: ${getTimeContext()}]`;
   if (memCtx) systemPrompt += memCtx;
+  if (semMemCtx) systemPrompt += semMemCtx;  // inject semantic memory context
   if (ragPackage?.sources.length) systemPrompt += buildRichContext(ragPackage);
 
   return {
@@ -325,7 +334,11 @@ export async function POST(req: NextRequest) {
               }
 
               if (eventsToSend.length) {
-                await inngest.send(eventsToSend as Parameters<typeof inngest.send>[0]);
+                // inngest.send accepts array of {name, data} objects
+                for (const evt of eventsToSend) {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  await inngest.send(evt as any);
+                }
               }
             } catch { /* background events failing must never crash the response */ }
           })();
