@@ -17,8 +17,10 @@ async function withRetry<T>(
       return await fn();
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      const isClientError = lastError.message.includes('400') || lastError.message.includes('401') || lastError.message.includes('403');
-      if (isClientError || attempt === maxAttempts) break;
+      // 4xx (except 429 rate-limit) are unrecoverable — don't retry
+      const isPermanent = ['400','401','403','404','410'].some(c => lastError.message.includes(`NIM ${c}`));
+      const isRateLimit  = lastError.message.includes('429');
+      if ((isPermanent && !isRateLimit) || attempt === maxAttempts) break;
       await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, attempt - 1)));
     }
   }
@@ -167,6 +169,18 @@ export async function quickChat(
   maxTokens = 1024,
   signal?: AbortSignal
 ): Promise<string> {
-  const result = await chatComplete({ model, messages, max_tokens: maxTokens, temperature: 0.3, top_p: 0.9 }, signal);
-  return result.content;
+  // Try NIM directly first (fastest)
+  if (NIM_KEY) {
+    try {
+      const result = await chatComplete({ model, messages, max_tokens: maxTokens, temperature: 0.3, top_p: 0.9 }, signal);
+      if (result.content) return result.content;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // 410/404 = model gone — fall through to multi-provider
+      if (!msg.includes('410') && !msg.includes('404')) throw err;
+    }
+  }
+  // Fallback: use multi-provider quickComplete (Groq/Gemini/HF)
+  const { quickComplete } = await import('@/lib/nova/providers/client');
+  return quickComplete(messages, 'fast', maxTokens);
 }

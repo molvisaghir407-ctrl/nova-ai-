@@ -250,32 +250,36 @@ export function getFallbackChain(task: TaskType, enableThinking: boolean, hasVis
 
   // ── Primary ──────────────────────────────────────────────────────────────
   if (enableThinking) {
-    // Extended thinking: Kimi K2 (best), then Gemini 2.5 Flash (free thinking)
-    chain.push(m('moonshotai/kimi-k2-instruct'));
-    chain.push(m('gemini-2.5-flash-preview-04-17'));
-    chain.push(m('deepseek-r1-distill-llama-70b'));   // Groq thinking fallback
+    // Extended thinking: Gemini 2.5 Flash (free, 1M ctx), then DeepSeek R1, then Kimi K2 if restored
+    chain.push(m('gemini-2.5-flash-preview-04-17'));   // FREE thinking, 1M context
+    chain.push(m('deepseek-ai/deepseek-r1'));          // NIM DeepSeek R1 (thinking)
+    chain.push(m('deepseek-r1-distill-llama-70b'));    // Groq DeepSeek (free thinking)
+    chain.push(m('moonshotai/kimi-k2-instruct'));      // NIM Kimi K2 (if restored)
   } else if (hasVision) {
     chain.push(m('meta/llama-4-maverick-17b-128e-instruct'));
     chain.push(m('gemini-2.0-flash'));                 // Gemini vision
     chain.push(m('meta-llama/llama-4-scout-17b-16e-instruct')); // Groq vision
   } else if (task === 'math' || task === 'reasoning' || task === 'code_review') {
-    chain.push(m('deepseek-ai/deepseek-r1'));          // Purpose-built for math
-    chain.push(m('deepseek-r1-distill-llama-70b'));    // Groq DeepSeek distill
-    chain.push(m('moonshotai/kimi-k2-instruct'));
+    chain.push(m('deepseek-ai/deepseek-r1'));          // NIM DeepSeek R1 (purpose-built)
+    chain.push(m('deepseek-r1-distill-llama-70b'));    // Groq DeepSeek (free)
+    chain.push(m('gemini-2.5-flash-preview-04-17'));   // Gemini thinking (free)
+    chain.push(m('meta/llama-4-maverick-17b-128e-instruct')); // NIM Llama 4
   } else if (task === 'fast') {
     // Fast queries: Groq wins on TTFT, use as primary
     chain.push(m('llama-3.3-70b-versatile'));          // Groq primary
     chain.push(m('gemini-2.0-flash'));                 // Gemini fast
     chain.push(m('moonshotai/kimi-k2-instruct'));
   } else if (task === 'long_context') {
-    chain.push(m('gemini-2.5-flash-preview-04-17'));   // 1M context
-    chain.push(m('moonshotai/kimi-k2-instruct'));      // 128k
-    chain.push(m('llama-3.3-70b-versatile'));          // Groq 128k
+    chain.push(m('gemini-2.5-flash-preview-04-17'));   // FREE 1M context (best)
+    chain.push(m('gemini-2.0-flash'));                 // FREE Gemini fallback
+    chain.push(m('meta-llama/llama-4-scout-17b-16e-instruct')); // Groq 131k (free)
+    chain.push(m('meta/llama-4-maverick-17b-128e-instruct')); // NIM 131k
   } else {
-    // Default: NVIDIA Kimi K2 for quality, Groq as fast fallback
-    chain.push(m('moonshotai/kimi-k2-instruct'));
-    chain.push(m('llama-3.3-70b-versatile'));          // Groq
-    chain.push(m('gemini-2.0-flash'));                 // Gemini
+    // Default: Llama 4 Maverick (NIM, working), then free providers
+    chain.push(m('meta/llama-4-maverick-17b-128e-instruct')); // NIM — confirmed working
+    chain.push(m('llama-3.3-70b-versatile'));          // Groq (free, fast)
+    chain.push(m('gemini-2.0-flash'));                 // Gemini (free, 1.5M ctx)
+    chain.push(m('moonshotai/kimi-k2-instruct'));      // NIM Kimi K2 (if restored)
   }
 
   // ── Always append remaining providers as safety net ───────────────────────

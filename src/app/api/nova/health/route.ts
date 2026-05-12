@@ -1,34 +1,43 @@
+/**
+ * Nova Health Check — GET /api/nova/health
+ * Returns provider availability, banned models, and env var status.
+ * Useful for debugging "all providers failed" errors in production.
+ */
+
+import { getAvailableProviders, getBannedModels } from '@/lib/nova/providers/client';
 import { NextResponse } from 'next/server';
 
-interface HealthCheck { name: string; status: 'ok' | 'degraded' | 'down'; latencyMs: number; detail?: string }
-
-async function checkNIM(): Promise<HealthCheck> {
-  const start = Date.now();
-  try {
-    const base = process.env.NVIDIA_NIM_BASE ?? 'https://integrate.api.nvidia.com/v1';
-    const key = process.env.NVIDIA_NIM_API_KEY ?? '';
-    const r = await fetch(`${base}/models`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(3000) });
-    return { name: 'nvidia-nim', status: r.ok ? 'ok' : 'degraded', latencyMs: Date.now() - start };
-  } catch (e) { return { name: 'nvidia-nim', status: 'down', latencyMs: Date.now() - start, detail: String(e) }; }
-}
-
-async function checkKV(): Promise<HealthCheck> {
-  const start = Date.now();
-  try {
-    const base = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${process.env.CLOUDFLARE_KV_NAMESPACE_ID}`;
-    const r = await fetch(`${base}/values/health-ping`, { headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_D1_TOKEN ?? ''}` }, signal: AbortSignal.timeout(2000), cache: 'no-store' });
-    return { name: 'cloudflare-kv', status: r.status < 500 ? 'ok' : 'degraded', latencyMs: Date.now() - start };
-  } catch (e) { return { name: 'cloudflare-kv', status: 'down', latencyMs: Date.now() - start, detail: String(e) }; }
-}
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const start = Date.now();
-  const [nim, kv] = await Promise.allSettled([checkNIM(), checkKV()]);
-  const checks: HealthCheck[] = [
-    nim.status === 'fulfilled' ? nim.value : { name: 'nvidia-nim', status: 'down' as const, latencyMs: 0 },
-    kv.status === 'fulfilled' ? kv.value : { name: 'cloudflare-kv', status: 'down' as const, latencyMs: 0 },
-    { name: 'api', status: 'ok' as const, latencyMs: 0 },
-  ];
-  const overallStatus = checks.some(c => c.status === 'down') ? 'degraded' : 'ok';
-  return NextResponse.json({ status: overallStatus, checks, totalMs: Date.now() - start, timestamp: new Date().toISOString() });
+  const providers = getAvailableProviders();
+  const bannedModels = getBannedModels();
+
+  // Check which required env vars are present (values redacted)
+  const envCheck: Record<string, boolean> = {
+    NVIDIA_NIM_API_KEY  : !!process.env.NVIDIA_NIM_API_KEY,
+    GROQ_API_KEY        : !!process.env.GROQ_API_KEY,
+    GEMINI_API_KEY      : !!process.env.GEMINI_API_KEY,
+    HF_API_TOKEN        : !!process.env.HF_API_TOKEN,
+    OPENROUTER_API_KEY  : !!process.env.OPENROUTER_API_KEY,
+    DATABASE_URL        : !!process.env.DATABASE_URL,
+    QDRANT_URL          : !!process.env.QDRANT_URL,
+    QDRANT_API_KEY      : !!process.env.QDRANT_API_KEY,
+    INNGEST_SIGNING_KEY : !!process.env.INNGEST_SIGNING_KEY,
+    INNGEST_EVENT_KEY   : !!process.env.INNGEST_EVENT_KEY,
+  };
+
+  const anyProviderAvailable = providers.some(p => p.available);
+
+  return NextResponse.json({
+    status   : anyProviderAvailable ? 'ok' : 'degraded',
+    timestamp: new Date().toISOString(),
+    providers,
+    bannedModels,
+    env      : envCheck,
+    note     : anyProviderAvailable
+      ? 'At least one provider is available'
+      : 'NO providers available — add at least one API key to Vercel env vars',
+  });
 }

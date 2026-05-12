@@ -61,9 +61,10 @@ export const MODEL_CONFIGS: Record<string, ModelConfig> = {
 export function routeTask(task: NIMTask, userOverride?: string): string {
   if (userOverride) return userOverride;
   const routes: Record<NIMTask, NIMModelId> = {
-    chat_general:    NIM_MODELS.KIMI_K2,
+    // Kimi K2 (410 Gone on NIM) → Llama 4 Maverick as default NIM model
+    chat_general:    NIM_MODELS.LLAMA_4_MAVERICK,
     chat_fast:       NIM_MODELS.LLAMA_4_MAVERICK,
-    chat_thinking:   NIM_MODELS.KIMI_K2,
+    chat_thinking:   NIM_MODELS.LLAMA_4_MAVERICK,   // multi-provider handles thinking routing
     code_generation: NIM_MODELS.DEEPSEEK_CODER,
     code_review:     NIM_MODELS.DEEPSEEK_R1,
     math_reasoning:  NIM_MODELS.DEEPSEEK_R1,
@@ -71,7 +72,7 @@ export function routeTask(task: NIMTask, userOverride?: string): string {
     vision_fast:     NIM_MODELS.LLAMA_VISION_11B,
     image_gen_hq:    NIM_MODELS.FLUX_DEV,
     image_gen_fast:  NIM_MODELS.FLUX_SCHNELL,
-    long_context:    NIM_MODELS.KIMI_K2,
+    long_context:    NIM_MODELS.LLAMA_4_MAVERICK,   // Gemini handles 1M+ via provider chain
     summarize:       NIM_MODELS.LLAMA_4_MAVERICK,
     rerank:          NIM_MODELS.NV_RERANK,
   };
