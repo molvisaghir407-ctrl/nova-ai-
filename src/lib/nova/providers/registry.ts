@@ -1,13 +1,7 @@
-/**
- * Nova Multi-Provider Registry
- * All providers share OpenAI-compatible /v1/chat/completions API format.
- * Each has free tier models that work without a credit card.
- */
-
-export type ProviderName = 'nvidia' | 'groq' | 'huggingface' | 'gemini' | 'openrouter';
+export type ProviderName = 'nvidia' | 'groq' | 'huggingface' | 'gemini' | 'openrouter' | 'deepseek';
 
 export interface ModelDef {
-  id: string;               // model ID sent to API
+  id: string;
   displayName: string;
   provider: ProviderName;
   contextWindow: number;
@@ -15,8 +9,8 @@ export interface ModelDef {
   supportsStreaming: boolean;
   supportsThinking: boolean;
   supportsVision: boolean;
-  quality: number;          // 1-10 (for auto-routing)
-  speed: number;            // 1-10 (tokens/sec estimate)
+  quality: number;
+  speed: number;
   free: boolean;
   bestFor: string[];
 }
@@ -24,14 +18,13 @@ export interface ModelDef {
 export interface ProviderDef {
   name: ProviderName;
   baseUrl: string;
-  envKey: string;           // process.env[envKey]
+  envKey: string;
   displayName: string;
   description: string;
   signupUrl: string;
   freeLimit: string;
 }
 
-// ── Provider definitions ─────────────────────────────────────────────────────
 export const PROVIDERS: Record<ProviderName, ProviderDef> = {
   nvidia: {
     name: 'nvidia',
@@ -53,7 +46,7 @@ export const PROVIDERS: Record<ProviderName, ProviderDef> = {
   },
   huggingface: {
     name: 'huggingface',
-    baseUrl: 'https://api-inference.huggingface.co/v1',
+    baseUrl: 'https://router.huggingface.co/hf-inference/v1',
     envKey: 'HF_API_TOKEN',
     displayName: 'HuggingFace',
     description: 'Free serverless inference. Qwen2.5-72B.',
@@ -78,14 +71,40 @@ export const PROVIDERS: Record<ProviderName, ProviderDef> = {
     signupUrl: 'https://openrouter.ai/keys',
     freeLimit: 'Free tier with :free models',
   },
+  deepseek: {
+    name: 'deepseek',
+    baseUrl: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1',
+    envKey: 'DEEPSEEK_API_KEY',
+    displayName: 'DeepSeek',
+    description: 'DeepSeek V3 + R1 reasoning models.',
+    signupUrl: 'https://platform.deepseek.com',
+    freeLimit: '500M tokens free',
+  },
 };
 
-// ── Model catalogue ──────────────────────────────────────────────────────────
 export const MODEL_CATALOGUE: ModelDef[] = [
-  // ── NVIDIA NIM ────────────────────────────────────────────────────────────
+  // ── DEEPSEEK (dedicated reasoning) ───────────────────────────────────────
   {
-    id: 'moonshotai/kimi-k2-instruct',
-    displayName: 'Kimi K2 (128k)',
+    id: 'deepseek-reasoner',
+    displayName: 'DeepSeek R1',
+    provider: 'deepseek', contextWindow: 64000, maxOutputTokens: 8192,
+    supportsStreaming: true, supportsThinking: true, supportsVision: false,
+    quality: 10, speed: 7, free: false,
+    bestFor: ['thinking', 'math', 'reasoning', 'code_review', 'analysis'],
+  },
+  {
+    id: 'deepseek-chat',
+    displayName: 'DeepSeek V3',
+    provider: 'deepseek', contextWindow: 64000, maxOutputTokens: 4096,
+    supportsStreaming: true, supportsThinking: false, supportsVision: false,
+    quality: 9, speed: 8, free: false,
+    bestFor: ['general', 'code', 'fast', 'analysis'],
+  },
+
+  // ── NVIDIA NIM ───────────────────────────────────────────────────────────
+  {
+    id: 'nvidia/llama-3.3-nemotron-super-49b-v1',
+    displayName: 'Nemotron Super 49B',
     provider: 'nvidia', contextWindow: 131072, maxOutputTokens: 16000,
     supportsStreaming: true, supportsThinking: true, supportsVision: false,
     quality: 10, speed: 6, free: false,
@@ -101,14 +120,14 @@ export const MODEL_CATALOGUE: ModelDef[] = [
   },
   {
     id: 'deepseek-ai/deepseek-r1',
-    displayName: 'DeepSeek R1',
+    displayName: 'DeepSeek R1 (NIM)',
     provider: 'nvidia', contextWindow: 131072, maxOutputTokens: 16000,
     supportsStreaming: true, supportsThinking: true, supportsVision: false,
     quality: 10, speed: 4, free: false,
-    bestFor: ['math', 'reasoning', 'code_review'],
+    bestFor: ['math', 'reasoning', 'code_review', 'thinking'],
   },
 
-  // ── GROQ (free, ultra-fast) ───────────────────────────────────────────────
+  // ── GROQ ─────────────────────────────────────────────────────────────────
   {
     id: 'llama-3.3-70b-versatile',
     displayName: 'Llama 3.3 70B',
@@ -126,14 +145,6 @@ export const MODEL_CATALOGUE: ModelDef[] = [
     bestFor: ['math', 'reasoning', 'thinking', 'code_review'],
   },
   {
-    id: 'moonshotai/moonlight-16b-a3b-instruct',
-    displayName: 'Moonlight 16B',
-    provider: 'groq', contextWindow: 8192, maxOutputTokens: 4096,
-    supportsStreaming: true, supportsThinking: false, supportsVision: false,
-    quality: 7, speed: 10, free: true,
-    bestFor: ['fast', 'simple', 'chat'],
-  },
-  {
     id: 'meta-llama/llama-4-scout-17b-16e-instruct',
     displayName: 'Llama 4 Scout 17B',
     provider: 'groq', contextWindow: 131072, maxOutputTokens: 8192,
@@ -142,7 +153,7 @@ export const MODEL_CATALOGUE: ModelDef[] = [
     bestFor: ['general', 'vision', 'fast', 'long_context'],
   },
 
-  // ── HUGGING FACE (free serverless) ───────────────────────────────────────
+  // ── HUGGING FACE ─────────────────────────────────────────────────────────
   {
     id: 'Qwen/Qwen2.5-72B-Instruct',
     displayName: 'Qwen2.5 72B',
@@ -159,16 +170,8 @@ export const MODEL_CATALOGUE: ModelDef[] = [
     quality: 9, speed: 5, free: true,
     bestFor: ['general', 'code', 'reasoning'],
   },
-  {
-    id: 'mistralai/Mistral-7B-Instruct-v0.3',
-    displayName: 'Mistral 7B',
-    provider: 'huggingface', contextWindow: 32000, maxOutputTokens: 4096,
-    supportsStreaming: true, supportsThinking: false, supportsVision: false,
-    quality: 7, speed: 8, free: true,
-    bestFor: ['fast', 'simple', 'summarize'],
-  },
 
-  // ── GOOGLE GEMINI (free tier) ─────────────────────────────────────────────
+  // ── GOOGLE GEMINI ────────────────────────────────────────────────────────
   {
     id: 'gemini-2.0-flash',
     displayName: 'Gemini 2.0 Flash',
@@ -186,7 +189,7 @@ export const MODEL_CATALOGUE: ModelDef[] = [
     bestFor: ['reasoning', 'thinking', 'vision', 'long_context'],
   },
 
-  // ── OPENROUTER (free models) ──────────────────────────────────────────────
+  // ── OPENROUTER ───────────────────────────────────────────────────────────
   {
     id: 'meta-llama/llama-3.3-70b-instruct:free',
     displayName: 'Llama 3.3 70B (OR)',
@@ -203,26 +206,16 @@ export const MODEL_CATALOGUE: ModelDef[] = [
     quality: 8, speed: 6, free: true,
     bestFor: ['reasoning', 'thinking', 'code'],
   },
-  {
-    id: 'google/gemini-2.0-flash-exp:free',
-    displayName: 'Gemini Flash Exp (OR)',
-    provider: 'openrouter', contextWindow: 1048576, maxOutputTokens: 8192,
-    supportsStreaming: true, supportsThinking: false, supportsVision: true,
-    quality: 9, speed: 8, free: true,
-    bestFor: ['general', 'vision', 'fallback'],
-  },
 ];
 
-// ── Helper: get available models for a provider ─────────────────────────────
 export function getProviderModels(provider: ProviderName): ModelDef[] {
-  return MODEL_CATALOGUE.filter(m => m.provider === provider);
+  return MODEL_CATALOGUE.filter((m) => m.provider === provider);
 }
 
-// ── Helper: get best model for a task ───────────────────────────────────────
 export type TaskType = 'general' | 'code' | 'code_review' | 'math' | 'reasoning' | 'fast' | 'vision' | 'long_context' | 'thinking' | 'summarize' | 'analysis';
 
 export function getBestModelForTask(task: TaskType, preferFree = false): ModelDef[] {
-  const available = MODEL_CATALOGUE.filter(m => {
+  const available = MODEL_CATALOGUE.filter((m) => {
     if (preferFree && !m.free) return false;
     return m.bestFor.includes(task) || m.bestFor.includes('general');
   });
@@ -234,63 +227,51 @@ export function getBestModelForTask(task: TaskType, preferFree = false): ModelDe
   });
 }
 
-// ── Priority fallback chain for a given task ─────────────────────────────────
-//
-// Routing philosophy (Grok-style adaptive):
-//   fast/chat queries   → Groq first (sub-100ms TTFT, free)
-//   complex/research    → NVIDIA NIM Kimi K2 (best quality, 128k)
-//   math/reasoning      → DeepSeek R1 (purpose-built)
-//   thinking/extended   → Kimi K2 → Gemini 2.5 Flash (both support thinking)
-//   vision              → Llama 4 Maverick → Gemini Flash (best vision models)
-//   long context (>64k) → Gemini 1M → Kimi K2 128k
-//
 export function getFallbackChain(task: TaskType, enableThinking: boolean, hasVision: boolean): ModelDef[] {
-  const m = (id: string) => MODEL_CATALOGUE.find(x => x.id === id)!;
+  const m = (id: string) => MODEL_CATALOGUE.find((x) => x.id === id)!;
   const chain: ModelDef[] = [];
 
-  // ── Primary ──────────────────────────────────────────────────────────────
   if (enableThinking) {
-    // Extended thinking: Gemini 2.5 Flash (free, 1M ctx), then DeepSeek R1, then Kimi K2 if restored
-    chain.push(m('gemini-2.5-flash-preview-04-17'));   // FREE thinking, 1M context
-    chain.push(m('deepseek-ai/deepseek-r1'));          // NIM DeepSeek R1 (thinking)
-    chain.push(m('deepseek-r1-distill-llama-70b'));    // Groq DeepSeek (free thinking)
-    chain.push(m('moonshotai/kimi-k2-instruct'));      // NIM Kimi K2 (if restored)
+    chain.push(m('deepseek-reasoner'));
+    chain.push(m('gemini-2.5-flash-preview-04-17'));
+    chain.push(m('deepseek-ai/deepseek-r1'));
+    chain.push(m('deepseek-r1-distill-llama-70b'));
+    chain.push(m('nvidia/llama-3.3-nemotron-super-49b-v1'));
   } else if (hasVision) {
     chain.push(m('meta/llama-4-maverick-17b-128e-instruct'));
-    chain.push(m('gemini-2.0-flash'));                 // Gemini vision
-    chain.push(m('meta-llama/llama-4-scout-17b-16e-instruct')); // Groq vision
+    chain.push(m('gemini-2.0-flash'));
+    chain.push(m('meta-llama/llama-4-scout-17b-16e-instruct'));
   } else if (task === 'math' || task === 'reasoning' || task === 'code_review') {
-    chain.push(m('deepseek-ai/deepseek-r1'));          // NIM DeepSeek R1 (purpose-built)
-    chain.push(m('deepseek-r1-distill-llama-70b'));    // Groq DeepSeek (free)
-    chain.push(m('gemini-2.5-flash-preview-04-17'));   // Gemini thinking (free)
-    chain.push(m('meta/llama-4-maverick-17b-128e-instruct')); // NIM Llama 4
+    chain.push(m('deepseek-reasoner'));
+    chain.push(m('deepseek-ai/deepseek-r1'));
+    chain.push(m('deepseek-r1-distill-llama-70b'));
+    chain.push(m('gemini-2.5-flash-preview-04-17'));
+    chain.push(m('meta/llama-4-maverick-17b-128e-instruct'));
   } else if (task === 'fast') {
-    // Fast queries: Groq wins on TTFT, use as primary
-    chain.push(m('llama-3.3-70b-versatile'));          // Groq primary
-    chain.push(m('gemini-2.0-flash'));                 // Gemini fast
-    chain.push(m('moonshotai/kimi-k2-instruct'));
+    chain.push(m('meta/llama-4-maverick-17b-128e-instruct'));
+    chain.push(m('llama-3.3-70b-versatile'));
+    chain.push(m('gemini-2.0-flash'));
+    chain.push(m('nvidia/llama-3.3-nemotron-super-49b-v1'));
   } else if (task === 'long_context') {
-    chain.push(m('gemini-2.5-flash-preview-04-17'));   // FREE 1M context (best)
-    chain.push(m('gemini-2.0-flash'));                 // FREE Gemini fallback
-    chain.push(m('meta-llama/llama-4-scout-17b-16e-instruct')); // Groq 131k (free)
-    chain.push(m('meta/llama-4-maverick-17b-128e-instruct')); // NIM 131k
+    chain.push(m('meta/llama-4-maverick-17b-128e-instruct'));
+    chain.push(m('gemini-2.5-flash-preview-04-17'));
+    chain.push(m('gemini-2.0-flash'));
+    chain.push(m('meta-llama/llama-4-scout-17b-16e-instruct'));
   } else {
-    // Default: Llama 4 Maverick (NIM, working), then free providers
-    chain.push(m('meta/llama-4-maverick-17b-128e-instruct')); // NIM — confirmed working
-    chain.push(m('llama-3.3-70b-versatile'));          // Groq (free, fast)
-    chain.push(m('gemini-2.0-flash'));                 // Gemini (free, 1.5M ctx)
-    chain.push(m('moonshotai/kimi-k2-instruct'));      // NIM Kimi K2 (if restored)
+    chain.push(m('meta/llama-4-maverick-17b-128e-instruct'));
+    chain.push(m('nvidia/llama-3.3-nemotron-super-49b-v1'));
+    chain.push(m('llama-3.3-70b-versatile'));
+    chain.push(m('gemini-2.0-flash'));
   }
 
-  // ── Always append remaining providers as safety net ───────────────────────
   const safetyNet = [
-    'Qwen/Qwen2.5-72B-Instruct',                      // HuggingFace free
-    'meta-llama/llama-3.3-70b-instruct:free',          // OpenRouter free
-    'google/gemini-2.0-flash-exp:free',                // OpenRouter Gemini
+    'Qwen/Qwen2.5-72B-Instruct',
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'google/gemini-2.0-flash-exp:free',
   ];
   for (const id of safetyNet) {
     const model = m(id);
-    if (model && !chain.find(x => x.id === id)) chain.push(model);
+    if (model && !chain.find((x) => x.id === id)) chain.push(model);
   }
 
   return chain.filter(Boolean);
