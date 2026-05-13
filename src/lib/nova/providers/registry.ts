@@ -103,8 +103,8 @@ export const MODEL_CATALOGUE: ModelDef[] = [
 
   // ── NVIDIA NIM ───────────────────────────────────────────────────────────
   {
-    id: 'moonshotai/kimi-k2-instruct',
-    displayName: 'Kimi K2 (128k)',
+    id: 'nvidia/llama-3.3-nemotron-super-49b-v1',
+    displayName: 'Nemotron Super 49B',
     provider: 'nvidia', contextWindow: 131072, maxOutputTokens: 16000,
     supportsStreaming: true, supportsThinking: true, supportsVision: false,
     quality: 10, speed: 6, free: false,
@@ -236,7 +236,7 @@ export function getFallbackChain(task: TaskType, enableThinking: boolean, hasVis
     chain.push(m('gemini-2.5-flash-preview-04-17'));
     chain.push(m('deepseek-ai/deepseek-r1'));
     chain.push(m('deepseek-r1-distill-llama-70b'));
-    chain.push(m('moonshotai/kimi-k2-instruct'));
+    chain.push(m('nvidia/llama-3.3-nemotron-super-49b-v1'));
   } else if (hasVision) {
     chain.push(m('meta/llama-4-maverick-17b-128e-instruct'));
     chain.push(m('gemini-2.0-flash'));
@@ -248,21 +248,20 @@ export function getFallbackChain(task: TaskType, enableThinking: boolean, hasVis
     chain.push(m('gemini-2.5-flash-preview-04-17'));
     chain.push(m('meta/llama-4-maverick-17b-128e-instruct'));
   } else if (task === 'fast') {
+    chain.push(m('meta/llama-4-maverick-17b-128e-instruct'));
     chain.push(m('llama-3.3-70b-versatile'));
     chain.push(m('gemini-2.0-flash'));
-    chain.push(m('deepseek-chat'));
-    chain.push(m('moonshotai/kimi-k2-instruct'));
+    chain.push(m('nvidia/llama-3.3-nemotron-super-49b-v1'));
   } else if (task === 'long_context') {
+    chain.push(m('meta/llama-4-maverick-17b-128e-instruct'));
     chain.push(m('gemini-2.5-flash-preview-04-17'));
     chain.push(m('gemini-2.0-flash'));
     chain.push(m('meta-llama/llama-4-scout-17b-16e-instruct'));
-    chain.push(m('meta/llama-4-maverick-17b-128e-instruct'));
   } else {
     chain.push(m('meta/llama-4-maverick-17b-128e-instruct'));
+    chain.push(m('nvidia/llama-3.3-nemotron-super-49b-v1'));
     chain.push(m('llama-3.3-70b-versatile'));
     chain.push(m('gemini-2.0-flash'));
-    chain.push(m('deepseek-chat'));
-    chain.push(m('moonshotai/kimi-k2-instruct'));
   }
 
   const safetyNet = [
