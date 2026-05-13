@@ -31,7 +31,7 @@ interface SidebarProps {
 function ConversationList({ currentId, onSelect, onNew }: { currentId: string; onSelect: (id: string) => void; onNew: () => void }) {
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [loading, setLoading] = useState(true);
-  const apiKey = typeof window !== 'undefined' ? (window as Window & { __nova_key?: string }).__nova_key ?? '' : '';
+  const apiKey = process.env.NEXT_PUBLIC_NOVA_API_KEY ?? '';
 
   const load = useCallback(async () => {
     setLoading(true);
