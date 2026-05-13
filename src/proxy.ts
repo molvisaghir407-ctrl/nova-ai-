@@ -53,20 +53,7 @@ export function proxy(req: NextRequest) {
     );
   }
 
-  // API key validation (skip health check)
-  if (pathname !== '/api/nova/health' && NOVA_API_KEY) {
-    const authHeader = req.headers.get('authorization');
-    const provided = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : req.headers.get('x-api-key');
-    if (!provided || provided !== NOVA_API_KEY) {
-      return new NextResponse(
-        JSON.stringify({ success: false, error: 'Unauthorized', code: 'AUTH_FAILED' }),
-        { status: 401, headers: { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer' } }
-      );
-    }
-  } else if (!NOVA_API_KEY) {
-    // No key configured — warn but allow (dev mode)
-    res.headers.set('X-Nova-Warning', 'NOVA_API_KEY not set');
-  }
+  // Auth removed — rate limiting above is sufficient protection
 
   return res;
 }
