@@ -4,7 +4,7 @@
  * Useful for debugging "all providers failed" errors in production.
  */
 
-import { getAvailableProviders, getBannedModels } from '@/lib/nova/providers/client';
+import { getAvailableProviders, getBannedModels, streamWithFallback } from '@/lib/nova/providers/client';
 import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
@@ -14,7 +14,6 @@ export async function GET() {
   const providers = getAvailableProviders();
   const bannedModels = getBannedModels();
 
-  // Check which required env vars are present (values redacted)
   const envCheck: Record<string, boolean> = {
     NVIDIA_NIM_API_KEY  : !!process.env.NVIDIA_NIM_API_KEY,
     GROQ_API_KEY        : !!process.env.GROQ_API_KEY,
@@ -26,18 +25,31 @@ export async function GET() {
     QDRANT_API_KEY      : !!process.env.QDRANT_API_KEY,
     INNGEST_SIGNING_KEY : !!process.env.INNGEST_SIGNING_KEY,
     INNGEST_EVENT_KEY   : !!process.env.INNGEST_EVENT_KEY,
+    CLOUDFLARE_ACCOUNT_ID: !!process.env.CLOUDFLARE_ACCOUNT_ID,
   };
+
+  // Live ping test
+  let pingResult: { ok: boolean; model?: string; error?: string } = { ok: false };
+  try {
+    const { stream, modelUsed } = await streamWithFallback({
+      messages: [{ role: 'user', content: 'Say "ok" and nothing else.' }],
+      task: 'fast', maxTokens: 10, temperature: 0,
+    });
+    // Drain just first chunk
+    for await (const _ of stream) { break; }
+    pingResult = { ok: true, model: modelUsed.displayName };
+  } catch (err) {
+    pingResult = { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 
   const anyProviderAvailable = providers.some(p => p.available);
 
   return NextResponse.json({
-    status   : anyProviderAvailable ? 'ok' : 'degraded',
+    status   : pingResult.ok ? 'ok' : 'degraded',
     timestamp: new Date().toISOString(),
+    ping     : pingResult,
     providers,
     bannedModels,
     env      : envCheck,
-    note     : anyProviderAvailable
-      ? 'At least one provider is available'
-      : 'NO providers available — add at least one API key to Vercel env vars',
   });
 }

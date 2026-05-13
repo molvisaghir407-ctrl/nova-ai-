@@ -196,6 +196,7 @@ export async function streamWithFallback(opts: StreamWithFallbackOptions): Promi
 
   let lastError: Error = new Error('No providers configured');
   let attemptsMade = 0;
+  const allErrors: string[] = [];
 
   for (let i = 0; i < chain.length; i++) {
     const model = chain[i];
@@ -229,6 +230,7 @@ export async function streamWithFallback(opts: StreamWithFallbackOptions): Promi
       };
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      allErrors.push(`[${model.provider}/${model.id}]: ${lastError.message.slice(0, 150)}`);
       logger.warn('providers', `✗ ${model.displayName}: ${lastError.message.slice(0, 120)}`);
     }
   }
@@ -238,8 +240,9 @@ export async function streamWithFallback(opts: StreamWithFallbackOptions): Promi
     .join(', ');
 
   throw new Error(
-    `All providers failed after ${attemptsMade} attempt(s). Last error: ${lastError.message}` +
-    (noKeyProviders ? ` | No key set for: ${noKeyProviders}` : '')
+    `All providers failed after ${attemptsMade} attempt(s).\n` +
+    allErrors.map((e, i) => `  ${i + 1}. ${e}`).join('\n') +
+    (noKeyProviders ? `\n  No key: ${noKeyProviders}` : '')
   );
 }
 

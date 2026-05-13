@@ -46,7 +46,7 @@ export const PROVIDERS: Record<ProviderName, ProviderDef> = {
   },
   huggingface: {
     name: 'huggingface',
-    baseUrl: 'https://api-inference.huggingface.co/v1',
+    baseUrl: 'https://router.huggingface.co/hf-inference/v1',
     envKey: 'HF_API_TOKEN',
     displayName: 'HuggingFace',
     description: 'Free serverless inference. Qwen2.5-72B.',
