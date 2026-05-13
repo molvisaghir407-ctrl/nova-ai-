@@ -236,13 +236,11 @@ export function getBestModelForTask(task: TaskType, preferFree = false): ModelDe
 
 // ── Priority fallback chain for a given task ─────────────────────────────────
 //
-// Routing philosophy (Grok-style adaptive):
-//   fast/chat queries   → Groq first (sub-100ms TTFT, free)
-//   complex/research    → NVIDIA NIM Kimi K2 (best quality, 128k)
-//   math/reasoning      → DeepSeek R1 (purpose-built)
-//   thinking/extended   → Kimi K2 → Gemini 2.5 Flash (both support thinking)
-//   vision              → Llama 4 Maverick → Gemini Flash (best vision models)
-//   long context (>64k) → Gemini 1M → Kimi K2 128k
+// Routing philosophy (fixed — NIM models returning 410 Gone):
+//   ALL tasks   → Groq first (free, ultra-fast, reliable)
+//               → Gemini second (free, high quality, 1M ctx)
+//               → HuggingFace / OpenRouter (free anonymous fallback)
+//               → NIM models LAST (flaky, frequently deprecated)
 //
 export function getFallbackChain(task: TaskType, enableThinking: boolean, hasVision: boolean): ModelDef[] {
   const m = (id: string) => MODEL_CATALOGUE.find(x => x.id === id)!;
@@ -250,43 +248,45 @@ export function getFallbackChain(task: TaskType, enableThinking: boolean, hasVis
 
   // ── Primary ──────────────────────────────────────────────────────────────
   if (enableThinking) {
-    // Extended thinking: Gemini 2.5 Flash (free, 1M ctx), then DeepSeek R1, then Kimi K2 if restored
+    // Thinking: free providers first
     chain.push(m('gemini-2.5-flash-preview-04-17'));   // FREE thinking, 1M context
-    chain.push(m('deepseek-ai/deepseek-r1'));          // NIM DeepSeek R1 (thinking)
-    chain.push(m('deepseek-r1-distill-llama-70b'));    // Groq DeepSeek (free thinking)
-    chain.push(m('moonshotai/kimi-k2-instruct'));      // NIM Kimi K2 (if restored)
+    chain.push(m('deepseek-r1-distill-llama-70b'));    // Groq DeepSeek R1 (free thinking)
+    chain.push(m('qwen/qwen3-32b:free'));              // OpenRouter Qwen3 (free thinking)
+    chain.push(m('deepseek-ai/deepseek-r1'));          // NIM DeepSeek R1 (last resort)
+    chain.push(m('moonshotai/kimi-k2-instruct'));      // NIM Kimi K2 (last resort)
   } else if (hasVision) {
-    chain.push(m('meta/llama-4-maverick-17b-128e-instruct'));
-    chain.push(m('gemini-2.0-flash'));                 // Gemini vision
-    chain.push(m('meta-llama/llama-4-scout-17b-16e-instruct')); // Groq vision
+    chain.push(m('gemini-2.0-flash'));                 // Gemini vision (free, best)
+    chain.push(m('meta-llama/llama-4-scout-17b-16e-instruct')); // Groq vision (free)
+    chain.push(m('google/gemini-2.0-flash-exp:free')); // OpenRouter Gemini vision
+    chain.push(m('meta/llama-4-maverick-17b-128e-instruct')); // NIM vision (last resort)
   } else if (task === 'math' || task === 'reasoning' || task === 'code_review') {
-    chain.push(m('deepseek-ai/deepseek-r1'));          // NIM DeepSeek R1 (purpose-built)
-    chain.push(m('deepseek-r1-distill-llama-70b'));    // Groq DeepSeek (free)
+    chain.push(m('deepseek-r1-distill-llama-70b'));    // Groq DeepSeek (free, fast)
     chain.push(m('gemini-2.5-flash-preview-04-17'));   // Gemini thinking (free)
-    chain.push(m('meta/llama-4-maverick-17b-128e-instruct')); // NIM Llama 4
+    chain.push(m('llama-3.3-70b-versatile'));          // Groq Llama fallback (free)
+    chain.push(m('deepseek-ai/deepseek-r1'));          // NIM DeepSeek (last resort)
   } else if (task === 'fast') {
-    // Fast queries: Groq wins on TTFT, use as primary
-    chain.push(m('llama-3.3-70b-versatile'));          // Groq primary
-    chain.push(m('gemini-2.0-flash'));                 // Gemini fast
-    chain.push(m('moonshotai/kimi-k2-instruct'));
+    chain.push(m('llama-3.3-70b-versatile'));          // Groq (sub-100ms TTFT, free)
+    chain.push(m('gemini-2.0-flash'));                 // Gemini fast (free)
+    chain.push(m('moonshotai/moonlight-16b-a3b-instruct')); // Groq Moonlight (tiny, fast)
   } else if (task === 'long_context') {
-    chain.push(m('gemini-2.5-flash-preview-04-17'));   // FREE 1M context (best)
-    chain.push(m('gemini-2.0-flash'));                 // FREE Gemini fallback
+    chain.push(m('gemini-2.5-flash-preview-04-17'));   // Gemini 1M context (free, best)
+    chain.push(m('gemini-2.0-flash'));                 // Gemini 1M fallback (free)
     chain.push(m('meta-llama/llama-4-scout-17b-16e-instruct')); // Groq 131k (free)
-    chain.push(m('meta/llama-4-maverick-17b-128e-instruct')); // NIM 131k
   } else {
-    // Default: Llama 4 Maverick (NIM, working), then free providers
-    chain.push(m('meta/llama-4-maverick-17b-128e-instruct')); // NIM — confirmed working
-    chain.push(m('llama-3.3-70b-versatile'));          // Groq (free, fast)
-    chain.push(m('gemini-2.0-flash'));                 // Gemini (free, 1.5M ctx)
-    chain.push(m('moonshotai/kimi-k2-instruct'));      // NIM Kimi K2 (if restored)
+    // Default general tasks: Groq → Gemini → free fallbacks (NIM goes to safety net)
+    chain.push(m('llama-3.3-70b-versatile'));          // Groq Llama 3.3 70B (primary, free)
+    chain.push(m('gemini-2.0-flash'));                 // Gemini 2.0 Flash (free)
+    chain.push(m('meta-llama/llama-4-scout-17b-16e-instruct')); // Groq Llama 4 Scout (free)
+    chain.push(m('gemini-2.5-flash-preview-04-17'));   // Gemini 2.5 Flash (free)
   }
 
-  // ── Always append remaining providers as safety net ───────────────────────
+  // ── Safety net: reliable free providers + NIM as absolute last resort ────
   const safetyNet = [
-    'Qwen/Qwen2.5-72B-Instruct',                      // HuggingFace free
-    'meta-llama/llama-3.3-70b-instruct:free',          // OpenRouter free
-    'google/gemini-2.0-flash-exp:free',                // OpenRouter Gemini
+    'Qwen/Qwen2.5-72B-Instruct',                      // HuggingFace (anonymous, free)
+    'meta-llama/llama-3.3-70b-instruct:free',          // OpenRouter (free)
+    'google/gemini-2.0-flash-exp:free',                // OpenRouter Gemini (free)
+    'meta/llama-4-maverick-17b-128e-instruct',         // NIM Llama 4 (last resort)
+    'moonshotai/kimi-k2-instruct',                     // NIM Kimi K2 (last resort)
   ];
   for (const id of safetyNet) {
     const model = m(id);

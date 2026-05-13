@@ -4,8 +4,8 @@
  * All providers expose OpenAI-compatible /v1/chat/completions.
  * One streaming SSE parser works for all of them.
  *
- * Fallback chain (ordered by quality then cost):
- *   NVIDIA NIM → Groq → Gemini → HuggingFace → OpenRouter
+ * Fallback chain (ordered by reliability then cost):
+ *   Groq → Gemini → HuggingFace → OpenRouter → NVIDIA NIM (last resort)
  *
  * Key improvements in this version:
  *   • Runtime model-ban cache: 410/404 responses permanently skip that model
