@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/nova/logger';
 
+export const dynamic = 'force-dynamic';
+
 // GET - Retrieve logs
 export async function GET(req: NextRequest) {
   try {

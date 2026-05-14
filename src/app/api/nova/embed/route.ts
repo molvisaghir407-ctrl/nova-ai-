@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { embed } from '@/lib/nova/nim/client';
 import { logger } from '@/lib/nova/logger';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as { texts?: string[]; model?: string };

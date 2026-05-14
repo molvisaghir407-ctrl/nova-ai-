@@ -4,6 +4,8 @@
  */
 import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const MING_BASE = process.env.MING_BASE_URL;
   const MING_API_KEY = process.env.MING_API_KEY || '';

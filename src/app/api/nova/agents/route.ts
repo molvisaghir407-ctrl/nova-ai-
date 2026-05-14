@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { listAgents, getAgentById, selectAgent } from '@/lib/nova/agents/registry';
 import { classifyIntent } from '@/lib/nova/rag/intent';
 
+export const dynamic = 'force-dynamic';
+
 // GET /api/nova/agents — list all agents or get one by id
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);

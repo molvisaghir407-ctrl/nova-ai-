@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/nova/logger';
 
+export const dynamic = 'force-dynamic';
+
 const NIM_API_KEY = process.env.NVIDIA_NIM_API_KEY!;
 const NIM_BASE = process.env.NVIDIA_NIM_BASE || 'https://integrate.api.nvidia.com/v1';
 // Best vision model on NIM — swap to 'nvidia/llama-3.2-11b-vision-instruct' for lower latency

@@ -4,14 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "prisma generate --no-engine || echo \"prisma skipped\"; next build",
+    "build": "prisma generate && next build",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
-    "postinstall": "prisma generate --no-engine || echo \"prisma generate skipped\"",
+    "postinstall": "prisma generate",
     "typecheck": "tsc --noEmit",
     "validate": "bun run typecheck && bun run lint"
   },
@@ -50,6 +50,7 @@
     "@radix-ui/react-toggle-group": "^1.1.10",
     "@radix-ui/react-tooltip": "^1.2.7",
     "@reactuses/core": "^6.0.5",
+    "@tailwindcss/postcss": "^4.1.0",
     "@tanstack/react-query": "^5.82.0",
     "@tanstack/react-table": "^8.21.3",
     "@types/react-syntax-highlighter": "^15.5.13",
@@ -60,6 +61,7 @@
     "date-fns": "^4.1.0",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.23.2",
+    "geist": "^1.7.0",
     "inngest": "^4.3.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.525.0",
@@ -80,13 +82,12 @@
     "sharp": "^0.34.3",
     "sonner": "^2.0.6",
     "tailwind-merge": "^3.3.1",
+    "tailwindcss": "^4.1.0",
     "uuid": "^11.1.0",
     "vaul": "^1.1.2",
     "z-ai-web-dev-sdk": "^0.0.16",
     "zod": "^4.0.2",
-    "zustand": "^5.0.6",
-    "tailwindcss": "^4.1.0",
-    "@tailwindcss/postcss": "^4.1.0"
+    "zustand": "^5.0.6"
   },
   "devDependencies": {
     "@types/react": "^19",

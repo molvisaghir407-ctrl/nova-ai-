@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/nova/logger';
 
+export const dynamic = 'force-dynamic';
+
 let _db: any = null;
 async function getDb() {
   if (_db) return _db;

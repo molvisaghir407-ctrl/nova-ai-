@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/nova/logger';
 
+export const dynamic = 'force-dynamic';
+
 const NIM_API_KEY = process.env.NVIDIA_NIM_API_KEY!;
 const NIM_BASE = process.env.NVIDIA_NIM_BASE || 'https://integrate.api.nvidia.com/v1';
 const DEFAULT_IMAGE_MODEL = process.env.NVIDIA_NIM_IMAGE_MODEL || 'black-forest-labs/flux-dev';

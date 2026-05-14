@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getAvailableProviders } from '@/lib/nova/providers/client';
 import { MODEL_CATALOGUE, PROVIDERS } from '@/lib/nova/providers/registry';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const providers = getAvailableProviders();
   const models = MODEL_CATALOGUE.map(m => ({

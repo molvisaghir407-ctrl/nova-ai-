@@ -3,6 +3,8 @@ import { memoryManager } from '@/lib/nova/memory';
 import { logger } from '@/lib/nova/logger';
 import { db } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 // GET - Retrieve memories
 export async function GET(req: NextRequest) {
   try {

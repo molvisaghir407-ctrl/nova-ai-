@@ -12,6 +12,8 @@ import type { NIMChatMessage } from '@/types/nvidia.types';
 import type { StreamEvent, Source } from '@/types/nova.types';
 import type { TaskType } from '@/lib/nova/providers/registry';
 
+export const dynamic = 'force-dynamic';
+
 // ── System prompt ─────────────────────────────────────────────────────────────
 const NOVA_SYSTEM = `You are Nova — an exceptionally intelligent, adaptive AI assistant.
 

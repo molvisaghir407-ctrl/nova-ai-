@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { webSearch } from '@/lib/nova/search';
 import { logger } from '@/lib/nova/logger';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
   try {

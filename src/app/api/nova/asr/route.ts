@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import ZAI from 'z-ai-web-dev-sdk';
 import { logger } from '@/lib/nova/logger';
 
+export const dynamic = 'force-dynamic';
+
 let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null;
 
 async function getZAI() {
