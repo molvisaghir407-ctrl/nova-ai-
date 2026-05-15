@@ -25,6 +25,7 @@ import { rerank } from '@/lib/nova/nim/client';
 import { rewriteQuery, allQueries } from './query-rewriter';
 import { buildKGContext } from './kg';
 import { searchChunks } from './qdrant';
+import { brainCheck, feedBrain } from './brain';
 
 // ── Cloudflare KV cache ───────────────────────────────────────────────────────
 const KV_BASE = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${process.env.CLOUDFLARE_KV_NAMESPACE_ID}`;
@@ -431,6 +432,8 @@ export interface RAGPackage {
   vectorSnippets: string[]; // top chunks from Qdrant vector store
   rewrittenQuery: string;   // LLM-rewritten query
   hops          : number;   // multi-hop count
+  brainContext  : string;   // vectorless BM25 brain knowledge
+  brainMode     : 'full' | 'partial' | 'skip';  // how brain was used
 }
 
 export async function runRAGPipeline(
@@ -442,6 +445,27 @@ export async function runRAGPipeline(
   const complexity = assessComplexity(message, intent);
   const subqueries = decomposeQuery(message, intent);
   const isLive = ['news', 'weather', 'finance', 'sports'].includes(intent);
+
+  // ── BRAIN-FIRST CHECK — vectorless BM25 (zero external calls) ────────────
+  const brain = await brainCheck(message, intent);
+
+  // Brain has full coverage → skip all external search
+  if (brain.mode === 'full') {
+    return {
+      sources       : [],
+      intent,
+      subqueries,
+      fromCache     : true,
+      durationMs    : Date.now() - pipelineStart,
+      searchQuery   : message,
+      kgContext     : '',
+      vectorSnippets: [],
+      rewrittenQuery: message,
+      hops          : 0,
+      brainContext  : brain.context,
+      brainMode     : 'full',
+    };
+  }
 
   // ── LLM Query Rewriting (fast model, parallel with cache check) ──────────
   // Use conversation history to resolve vague references ("it", "that", "they")
@@ -466,6 +490,8 @@ export async function runRAGPipeline(
         vectorSnippets: [],
         rewrittenQuery: message,
         hops          : 1,
+        brainContext  : brain.context,
+        brainMode     : brain.mode,
       };
     }
   }
@@ -488,6 +514,8 @@ export async function runRAGPipeline(
       vectorSnippets: [],
       rewrittenQuery: message,
       hops          : 1,
+      brainContext  : brain.context,
+      brainMode     : brain.mode,
     };
   }
 
@@ -536,6 +564,8 @@ export async function runRAGPipeline(
           vectorSnippets,
           rewrittenQuery: searchMessage,
           hops          : hopResult.totalHops,
+          brainContext  : brain.context,
+          brainMode     : brain.mode,
         };
       }
       // If multi-hop found < 3 sources, fall through to standard pipeline
@@ -640,6 +670,8 @@ export async function runRAGPipeline(
       vectorSnippets: [],
       rewrittenQuery: searchMessage ?? message,
       hops          : 1,
+      brainContext  : brain.context,
+      brainMode     : brain.mode,
     };
   }
 
@@ -697,12 +729,26 @@ export async function runRAGPipeline(
     vectorSnippets,
     rewrittenQuery: searchMessage,
     hops          : 1,
+    brainContext  : brain.context,
+    brainMode     : brain.mode,
   };
 }
 
 // ── Context builder — injected into system prompt ─────────────────────────────
 export function buildRichContext(pkg: RAGPackage): string {
-  if (!pkg.sources.length) return '';
+  const parts: string[] = [];
+
+  // ── BRAIN CONTEXT FIRST (highest priority — Nova's own accumulated knowledge)
+  if (pkg.brainContext) {
+    parts.push(pkg.brainContext);
+  }
+
+  // Feed sources into brain asynchronously (don't block response)
+  if (pkg.sources.length && !['full'].includes(pkg.brainMode)) {
+    void feedBrain(pkg.sources, pkg.intent, pkg.searchQuery);
+  }
+
+  if (!pkg.sources.length) return parts.join('\n');
 
   const intentLabel: Partial<Record<QueryIntent, string>> = {
     code:     '💻 Code & Technical',
@@ -718,8 +764,9 @@ export function buildRichContext(pkg: RAGPackage): string {
     general:  '🌐 General',
   };
 
-  const label = intentLabel[pkg.intent] ?? '🔍 Research';
+  const label     = intentLabel[pkg.intent] ?? '🔍 Research';
   const cacheNote = pkg.fromCache ? ' (cached)' : '';
+  const brainNote = pkg.brainMode === 'partial' ? ' + 🧠 Brain' : '';
 
   const snippets = pkg.sources.map(s => {
     const lines = [
@@ -731,32 +778,28 @@ export function buildRichContext(pkg: RAGPackage): string {
     return lines.join('\n');
   });
 
-  const parts = [
+  parts.push(
     '',
     '---',
-    `## ${label} Research Context — ${pkg.sources.length} sources · ${pkg.durationMs}ms${cacheNote}`,
+    `## ${label} Research Context — ${pkg.sources.length} sources · ${pkg.durationMs}ms${cacheNote}${brainNote}`,
     `**Query**: "${pkg.searchQuery}"`,
-    pkg.rewrittenQuery && pkg.rewrittenQuery !== pkg.searchQuery
-      ? `**Optimized**: "${pkg.rewrittenQuery}"`
-      : '',
-    pkg.hops > 1 ? `**Multi-hop**: ${pkg.hops} search hops` : '',
-  ].filter(Boolean);
+    ...(pkg.rewrittenQuery && pkg.rewrittenQuery !== pkg.searchQuery
+      ? [`**Optimized**: "${pkg.rewrittenQuery}"`]
+      : []),
+    ...(pkg.hops > 1 ? [`**Multi-hop**: ${pkg.hops} search hops`] : []),
+  );
 
   if (pkg.subqueries.length > 1) {
     parts.push(`**Also searched**: ${pkg.subqueries.slice(1).join(' · ')}`);
   }
 
   parts.push('', snippets.join('\n\n'), '');
-  parts.push('> **Cite sources inline as [1], [2], etc.** Prefer most recent & authoritative sources.');
-  parts.push('> If sources contradict each other, acknowledge the discrepancy.');
+  parts.push('> **Cite live sources as [1], [2]…** and brain knowledge as [B1], [B2]…');
+  parts.push('> Prefer most recent & authoritative. Acknowledge contradictions.');
   parts.push('---');
 
-  // ── Inject Knowledge Graph entity context ─────────────────────────────────
-  if (pkg.kgContext) {
-    parts.push('', pkg.kgContext, '');
-  }
+  if (pkg.kgContext) parts.push('', pkg.kgContext, '');
 
-  // ── Inject top vector-store chunks (long-term knowledge base) ─────────────
   if (pkg.vectorSnippets.length) {
     parts.push('### Long-term Knowledge Base (Vector Store)');
     for (const s of pkg.vectorSnippets) parts.push(s);

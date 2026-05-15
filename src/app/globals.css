@@ -533,3 +533,96 @@ main, aside {
   contain: layout;
   will-change: contents;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   DEEPSEEK-STYLE THINKING ANIMATIONS
+   Neural pulse, phase orbit, progress sweep, cursor blink
+═══════════════════════════════════════════════════════════════ */
+
+/* Outer ring slow spin */
+@keyframes ds-ring-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Core dot pulse */
+@keyframes ds-core-pulse {
+  0%, 100% { transform: scale(1);    opacity: 1;   }
+  50%       { transform: scale(1.45); opacity: 0.7; }
+}
+
+/* Three orbit dots at 0°, 120°, 240° */
+@keyframes ds-orbit-1 {
+  from { transform: rotate(0deg)   translateX(8.5px) rotate(0deg);   }
+  to   { transform: rotate(360deg) translateX(8.5px) rotate(-360deg);}
+}
+@keyframes ds-orbit-2 {
+  from { transform: rotate(120deg)  translateX(8.5px) rotate(-120deg); }
+  to   { transform: rotate(480deg)  translateX(8.5px) rotate(-480deg); }
+}
+@keyframes ds-orbit-3 {
+  from { transform: rotate(240deg)  translateX(8.5px) rotate(-240deg); }
+  to   { transform: rotate(600deg)  translateX(8.5px) rotate(-600deg); }
+}
+
+/* Outer glow pulse on the thinking container */
+@keyframes ds-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(139,92,246,0),  0 0 0  0 rgba(139,92,246,0);  }
+  40%       { box-shadow: 0 0 22px 4px rgba(139,92,246,0.13), 0 0 40px 12px rgba(139,92,246,0.06); }
+}
+.ds-thinking-glow { animation: ds-glow 2.6s ease-in-out infinite; }
+
+/* Phase label shimmer — colour interpolates via CSS var */
+@keyframes ds-shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+.ds-phase-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--phase-color, rgba(167,139,250,1)) 0%,
+    rgba(255,255,255,0.9) 40%,
+    var(--phase-color, rgba(167,139,250,1)) 80%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: ds-shimmer 2.2s linear infinite;
+}
+
+/* Progress sweep line at top of thinking body */
+@keyframes ds-sweep {
+  0%   { transform: translateX(-100%); opacity: 0.8; }
+  80%  { transform: translateX(100%);  opacity: 0.8; }
+  100% { transform: translateX(100%);  opacity: 0;   }
+}
+.ds-progress-sweep {
+  animation: ds-sweep 2s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* Cursor blink inside thinking body */
+@keyframes ds-cursor {
+  0%, 45% { opacity: 1; }
+  55%,100% { opacity: 0; }
+}
+.ds-cursor-blink { animation: ds-cursor 0.9s step-end infinite; }
+
+/* ═══════════════════════════════════════════════════════════════
+   HTML ARTIFACT PANEL
+═══════════════════════════════════════════════════════════════ */
+.nova-html-artifact {
+  contain: layout style;
+  will-change: transform;
+}
+
+/* Expand overlay backdrop */
+.nova-html-artifact.is-expanded::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(4px);
+  z-index: 49;
+}

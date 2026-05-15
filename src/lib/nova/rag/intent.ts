@@ -81,11 +81,12 @@ const INTENT_PATTERNS: Array<{ intent: QueryIntent; patterns: RegExp[] }> = [
   },
 ];
 
+// ── Intents that NEVER need RAG ──────────────────────────────────────────────
+// Only pure math and short greetings skip RAG entirely
+const NEVER_RAG_INTENTS: QueryIntent[] = ['conversational'];
+
 // ── Intents that ALWAYS need real-time data ──────────────────────────────────
 const ALWAYS_RAG_INTENTS: QueryIntent[] = ['weather', 'finance', 'news', 'sports'];
-
-// ── Intents that NEVER need RAG ──────────────────────────────────────────────
-const NEVER_RAG_INTENTS: QueryIntent[] = ['conversational', 'creative', 'math'];
 
 // ── Specialized source domains per intent ────────────────────────────────────
 export const SPECIALIZED_SOURCES: Partial<Record<QueryIntent, string[]>> = {
@@ -127,15 +128,16 @@ export function classifyIntent(message: string): QueryIntent {
 }
 
 /**
- * Smart RAG decision — Grok / Perplexity style:
+ * Smart RAG decision — aggressive brain-first approach:
  * - Real-time intents → always RAG
- * - Short conversational/creative/math → API only (fast)
- * - Complex multi-part queries → RAG
- * - Long queries → RAG
+ * - Pure short greetings → skip
+ * - Everything else ≥ 30 chars → trigger RAG (brain first, web if needed)
  */
-export function shouldUseRAG(intent: QueryIntent, messageLength = 0, ragThreshold = 100): boolean {
+export function shouldUseRAG(intent: QueryIntent, messageLength = 0, ragThreshold = 30): boolean {
   if (NEVER_RAG_INTENTS.includes(intent)) return false;
   if (ALWAYS_RAG_INTENTS.includes(intent)) return true;
+  // Math/creative still use RAG for brain knowledge (they may have cached answers)
+  if (intent === 'math' && messageLength < 60) return false;
   return messageLength >= ragThreshold;
 }
 
