@@ -626,3 +626,147 @@ main, aside {
   backdrop-filter: blur(4px);
   z-index: 49;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   SEARCH PROGRESS — Kimi K2 style source cards
+═══════════════════════════════════════════════════════════════ */
+@keyframes search-scan {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.search-scan-line { animation: search-scan 1.8s ease-in-out infinite; }
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE-FIRST DESIGN
+   Safe areas, touch targets, responsive layout
+═══════════════════════════════════════════════════════════════ */
+
+/* iOS safe areas */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .nova-input-bar {
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  }
+  .nova-mobile-header {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* Touch-friendly tap targets: min 44×44 per Apple HIG */
+@media (max-width: 640px) {
+  /* Input bar full-width, taller on mobile */
+  .nova-textarea {
+    font-size: 16px !important; /* prevent iOS zoom on focus */
+    min-height: 48px !important;
+  }
+
+  /* Send button bigger touch target */
+  button[aria-label="Send message"],
+  button[aria-label="Attach image"] {
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 14px !important;
+  }
+
+  /* Messages: full width, smaller padding */
+  .nova-message-row { padding: 0 !important; }
+
+  /* Source cards: single column on small mobile */
+  .search-source-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Thinking block: slightly smaller font */
+  .nova-thinking-text {
+    font-size: 10px !important;
+  }
+
+  /* Header: smaller */
+  .nova-header { height: 48px !important; }
+
+  /* HtmlArtifact: shorter preview on mobile */
+  .nova-html-preview { height: 260px !important; }
+}
+
+/* Mobile sidebar overlay */
+.mobile-sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 40;
+}
+.mobile-sidebar-fixed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 50;
+  overflow-y: auto;
+}
+
+/* Scroll momentum on iOS */
+.nova-messages-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* Prevent content jump when keyboard opens on iOS */
+@media (max-width: 640px) {
+  .nova-main { height: 100dvh; }
+}
+
+/* Responsive message max-width */
+.nova-msg-user    { max-width: min(80%, 520px); }
+.nova-msg-assistant { max-width: 100%; }
+
+@media (max-width: 480px) {
+  .nova-msg-user { max-width: 88%; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DEEPSEEK SLOW WORD REVEAL
+   Words enter with subtle opacity — appears contemplative
+═══════════════════════════════════════════════════════════════ */
+@keyframes ds-word-enter {
+  from { opacity: 0; transform: translateY(1px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+.ds-word-new {
+  animation: ds-word-enter 0.12s ease-out both;
+}
+
+/* Nova cursor blink in text (not thinking) */
+@keyframes nova-cursor {
+  0%, 45% { opacity: 1; }
+  55%,100% { opacity: 0; }
+}
+.claude-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: rgba(167, 139, 250, 0.8);
+  border-radius: 1px;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  animation: nova-cursor 0.85s step-end infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SCROLLBAR POLISH
+═══════════════════════════════════════════════════════════════ */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.18); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(139,92,246,0.35); }
+
+/* ═══════════════════════════════════════════════════════════════
+   NOVA WORD ENTER ANIMATION (StreamingText)
+═══════════════════════════════════════════════════════════════ */
+@keyframes nova-word-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+.nova-word-enter {
+  display: inline;
+  animation: nova-word-in 0.14s ease-out both;
+}

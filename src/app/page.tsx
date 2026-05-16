@@ -22,6 +22,8 @@ import { toast } from 'sonner';
 import { useNovaStore } from '@/lib/nova/store';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { MessageBubble } from '@/components/chat/MessageBubble';
+import { SearchProgress } from '@/components/chat/SearchProgress';
+import type { SearchSourceCard } from '@/components/chat/SearchProgress';
 import type { ExtMessage, Source, ConversationMeta, StreamEvent } from '@/types/nova.types';
 import { cn } from '@/lib/utils';
 
@@ -680,6 +682,7 @@ export default function NovaApp() {
   const [isRAGSearching, setIsRAGSearching] = useState(false);
   const [ragSourceCount, setRAGSourceCount] = useState(0);
   const [preflightStatus, setPreflightStatus] = useState('');
+  const [searchSources,   setSearchSources]   = useState<SearchSourceCard[]>([]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
@@ -747,6 +750,7 @@ export default function NovaApp() {
     setTokenCount(null);
     setRAGSourceCount(0);
     setIsRAGSearching(false);
+    setSearchSources([]);
     scrollToBottom();
     if (textareaRef.current) textareaRef.current.style.height = '44px';
 
@@ -787,6 +791,15 @@ export default function NovaApp() {
           let evt: StreamEvent;
           try { evt = JSON.parse(jsonStr) as StreamEvent; } catch { continue; }
 
+          if (evt.type === 'source_progress') {
+            setSearchSources(prev => {
+              const idx = prev.findIndex(s => s.url === evt.url);
+              const card: SearchSourceCard = { url: evt.url, title: evt.title, domain: evt.domain, status: evt.status };
+              if (idx >= 0) { const next = [...prev]; next[idx] = card; return next; }
+              return [...prev, card];
+            });
+            continue;
+          }
           if (evt.type === 'rag') {
             ragSources = evt.sources;
             ragUsed = true;
@@ -1063,9 +1076,14 @@ export default function NovaApp() {
 
               {/* Input area */}
               <div className="shrink-0 border-t border-white/8 bg-zinc-900/60 px-2 sm:px-4 py-2.5 sm:py-3">
+              {/* Search progress — Kimi K2 style source cards */}
                 <AnimatePresence>
-                  {(isRAGSearching || ragSourceCount > 0 || preflightStatus) && (
-                    <RAGIndicator isSearching={isRAGSearching} sources={ragSourceCount} status={preflightStatus} />
+                  {(isRAGSearching || searchSources.length > 0) && (
+                    <SearchProgress
+                      sources={searchSources}
+                      isSearching={isRAGSearching}
+                      query={isRAGSearching ? input || undefined : undefined}
+                    />
                   )}
                 </AnimatePresence>
 

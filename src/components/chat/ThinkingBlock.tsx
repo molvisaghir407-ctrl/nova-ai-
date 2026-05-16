@@ -10,106 +10,156 @@ interface ThinkingBlockProps {
   duration?   : number;
 }
 
-// ── Thinking phases ───────────────────────────────────────────────────────────
+// ── Phases ────────────────────────────────────────────────────────────────────
 const PHASES = [
   { id: 'analyze',    label: 'Analyzing',    color: '#818cf8' },
   { id: 'reason',     label: 'Reasoning',    color: '#a78bfa' },
   { id: 'synthesize', label: 'Synthesizing', color: '#c084fc' },
   { id: 'verify',     label: 'Verifying',    color: '#e879f9' },
 ] as const;
+type Phase = typeof PHASES[number];
 
-function getPhase(streaming: boolean, wc: number) {
-  if (!streaming) return PHASES[3];
-  if (wc > 120) return PHASES[3];
-  if (wc > 50)  return PHASES[2];
-  if (wc > 15)  return PHASES[1];
-  return PHASES[0];
+function getPhase(streaming: boolean, wc: number): Phase {
+  if (!streaming) return PHASES[3]!;
+  if (wc > 120) return PHASES[3]!;
+  if (wc > 50)  return PHASES[2]!;
+  if (wc > 15)  return PHASES[1]!;
+  return PHASES[0]!;
 }
 
-// ── Neural SVG animation ──────────────────────────────────────────────────────
+// ── Neural SVG ────────────────────────────────────────────────────────────────
 function NeuralPulse({ color, active }: { color: string; active: boolean }) {
   return (
     <svg width="22" height="22" viewBox="0 0 22 22" fill="none" className="shrink-0">
-      <circle cx="11" cy="11" r="9"
-        stroke={color} strokeWidth="1" strokeDasharray="4 2"
+      <circle cx="11" cy="11" r="9" stroke={color} strokeWidth="1" strokeDasharray="4 2"
         opacity={active ? 0.55 : 0.18}
-        style={active ? { animation: 'ds-ring-spin 3s linear infinite' } : undefined}
-      />
-      <circle cx="11" cy="11" r="5.5"
-        stroke={color} strokeWidth="1.2"
+        style={active ? { animation: 'ds-ring-spin 3s linear infinite' } : undefined} />
+      <circle cx="11" cy="11" r="5.5" stroke={color} strokeWidth="1.2"
         opacity={active ? 0.75 : 0.28}
-        style={active ? { animation: 'ds-ring-spin 1.8s linear infinite reverse' } : undefined}
-      />
-      <circle cx="11" cy="11" r="2.4"
-        fill={color} opacity={active ? 1 : 0.35}
-        style={active ? { animation: 'ds-core-pulse 1.1s ease-in-out infinite' } : undefined}
-      />
-      {active && (
-        <>
-          <circle cx="11" cy="2.5" r="1.2" fill={color} opacity="0.7"
-            style={{ animation: 'ds-orbit-1 1.6s linear infinite', transformOrigin: '11px 11px' }} />
-          <circle cx="11" cy="2.5" r="1"   fill={color} opacity="0.5"
-            style={{ animation: 'ds-orbit-2 2.2s linear infinite', transformOrigin: '11px 11px' }} />
-          <circle cx="11" cy="2.5" r="0.8" fill={color} opacity="0.4"
-            style={{ animation: 'ds-orbit-3 1.3s linear infinite', transformOrigin: '11px 11px' }} />
-        </>
-      )}
+        style={active ? { animation: 'ds-ring-spin 1.8s linear infinite reverse' } : undefined} />
+      <circle cx="11" cy="11" r="2.4" fill={color} opacity={active ? 1 : 0.35}
+        style={active ? { animation: 'ds-core-pulse 1.1s ease-in-out infinite' } : undefined} />
+      {active && (<>
+        <circle cx="11" cy="2.5" r="1.2" fill={color} opacity="0.7"
+          style={{ animation: 'ds-orbit-1 1.6s linear infinite', transformOrigin: '11px 11px' }} />
+        <circle cx="11" cy="2.5" r="1" fill={color} opacity="0.5"
+          style={{ animation: 'ds-orbit-2 2.2s linear infinite', transformOrigin: '11px 11px' }} />
+        <circle cx="11" cy="2.5" r="0.8" fill={color} opacity="0.4"
+          style={{ animation: 'ds-orbit-3 1.3s linear infinite', transformOrigin: '11px 11px' }} />
+      </>)}
     </svg>
   );
 }
 
-// ── Highlight reasoning connectives ──────────────────────────────────────────
+// ── Reasoning markers ─────────────────────────────────────────────────────────
 const MARKERS = [
-  { re: /\b(therefore|thus|hence|consequently)\b/gi, cls: 'text-violet-300 font-medium' },
-  { re: /\b(because|since|given that|assuming)\b/gi, cls: 'text-blue-300/85'            },
-  { re: /\b(however|but|although|yet|nevertheless)\b/gi, cls: 'text-amber-300/85'       },
-  { re: /\b(first|second|third|finally|step \d)\b/gi, cls: 'text-emerald-300/80'        },
-  { re: /\b(important|critical|note that|key)\b/gi,  cls: 'text-rose-300/80'            },
+  { re: /\b(therefore|thus|hence|consequently)\b/gi,     cls: 'text-violet-300 font-medium' },
+  { re: /\b(because|since|given that|assuming)\b/gi,     cls: 'text-blue-300/85'            },
+  { re: /\b(however|but|although|yet|nevertheless)\b/gi, cls: 'text-amber-300/85'           },
+  { re: /\b(first|second|third|finally|step \d)\b/gi,   cls: 'text-emerald-300/80'         },
+  { re: /\b(important|critical|note that|key)\b/gi,      cls: 'text-rose-300/80'            },
 ];
 
 function HighlightThought({ text }: { text: string }) {
-  const parts: Array<{ t: string; cls?: string }> = [];
-  let rem = text, guard = 0;
-  while (rem.length && guard++ < 3000) {
+  const segs: Array<{ t: string; cls?: string }> = [];
+  let rem = text, g = 0;
+  while (rem.length && g++ < 4000) {
     let best: { idx: number; len: number; cls: string } | null = null;
     for (const { re, cls } of MARKERS) {
       re.lastIndex = 0;
       const m = re.exec(rem);
       if (m && (!best || m.index < best.idx)) best = { idx: m.index, len: m[0].length, cls };
     }
-    if (!best) { parts.push({ t: rem }); break; }
-    if (best.idx > 0) parts.push({ t: rem.slice(0, best.idx) });
-    parts.push({ t: rem.slice(best.idx, best.idx + best.len), cls: best.cls });
+    if (!best) { segs.push({ t: rem }); break; }
+    if (best.idx > 0) segs.push({ t: rem.slice(0, best.idx) });
+    segs.push({ t: rem.slice(best.idx, best.idx + best.len), cls: best.cls });
     rem = rem.slice(best.idx + best.len);
   }
   return (
     <>
-      {parts.map((p, i) =>
-        p.cls ? <span key={i} className={p.cls}>{p.t}</span> : <span key={i}>{p.t}</span>
+      {segs.map((s, i) =>
+        s.cls ? <span key={i} className={s.cls}>{s.t}</span> : <span key={i}>{s.t}</span>
       )}
     </>
   );
 }
 
+// ── DeepSeek-style SLOW word-by-word reveal ───────────────────────────────────
+// Incoming content streams fast from the server; we deliberately drip it out
+// word-by-word at ~40ms/word to create the contemplative DeepSeek feel.
+function useSlowReveal(content: string, active: boolean, msPerWord = 40): string {
+  const [revealed, setRevealed] = useState('');
+  const queueRef  = useRef('');
+  const prevRef   = useRef('');
+  const rafRef    = useRef<number | null>(null);
+  const lastRef   = useRef(0);
+
+  // Feed new content into queue
+  useEffect(() => {
+    const delta = content.slice(prevRef.current.length);
+    prevRef.current = content;
+    if (delta) queueRef.current += delta;
+  }, [content]);
+
+  useEffect(() => {
+    if (!active) {
+      // Streaming ended — flush immediately
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      setRevealed(content);
+      queueRef.current = '';
+      return;
+    }
+
+    const tick = (ts: number) => {
+      const elapsed = ts - lastRef.current;
+      if (elapsed >= msPerWord && queueRef.current.length > 0) {
+        lastRef.current = ts;
+        // Reveal up to next word boundary
+        const queue = queueRef.current;
+        const spaceAt = queue.indexOf(' ', 1);
+        const nlAt    = queue.indexOf('\n', 1);
+        let cut = Math.min(
+          spaceAt  < 0 ? Infinity : spaceAt + 1,
+          nlAt     < 0 ? Infinity : nlAt + 1,
+          queue.length,
+        );
+        if (cut === Infinity) cut = queue.length;
+        const chunk = queue.slice(0, cut);
+        queueRef.current = queue.slice(cut);
+        setRevealed(r => r + chunk);
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [active, content, msPerWord]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return revealed;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
-export const ThinkingBlock = memo(function ThinkingBlock({ content, isStreaming, duration }: ThinkingBlockProps) {
-  const [expanded,   setExpanded]   = useState(true);
+export const ThinkingBlock = memo(function ThinkingBlock({
+  content, isStreaming, duration,
+}: ThinkingBlockProps) {
+  const [expanded,  setExpanded]  = useState(true);
   const scrollRef  = useRef<HTMLDivElement>(null);
   const wasStream  = useRef(false);
-  const prevLen    = useRef(0);
 
-  const wc    = useMemo(() => content.split(/\s+/).filter(Boolean).length, [content]);
-  const phase = useMemo(() => getPhase(!!isStreaming, wc), [isStreaming, wc]);
+  const wc       = useMemo(() => content.split(/\s+/).filter(Boolean).length, [content]);
+  const phase    = useMemo(() => getPhase(!!isStreaming, wc), [isStreaming, wc]);
 
-  // Auto-scroll
+  // DeepSeek-style slow word reveal (40ms per word) when streaming
+  const revealed = useSlowReveal(content, !!isStreaming, 38);
+
+  // Auto-scroll to bottom during reveal
   useEffect(() => {
-    if (isStreaming && content.length !== prevLen.current && scrollRef.current) {
+    if (isStreaming && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      prevLen.current = content.length;
     }
-  }, [content, isStreaming]);
+  }, [revealed, isStreaming]);
 
-  // Auto-collapse
+  // Auto-collapse 900ms after streaming ends
   useEffect(() => {
     if (wasStream.current && !isStreaming) {
       const t = setTimeout(() => setExpanded(false), 900);
@@ -121,10 +171,10 @@ export const ThinkingBlock = memo(function ThinkingBlock({ content, isStreaming,
   return (
     <motion.div
       initial={{ opacity: 0, y: -8, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0,  scale: 1    }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.27, ease: [0.4, 0, 0.2, 1] }}
       className={cn(
-        'mb-3 rounded-2xl overflow-hidden border transition-all duration-500',
+        'mb-3 rounded-2xl overflow-hidden border transition-all duration-500 relative',
         isStreaming
           ? 'border-violet-500/40 bg-violet-950/20 ds-thinking-glow'
           : 'border-violet-500/15 bg-violet-950/10 hover:border-violet-500/25',
@@ -133,7 +183,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({ content, isStreaming,
       {/* Header */}
       <button
         onClick={() => setExpanded(e => !e)}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-violet-500/6 transition-colors duration-200 cursor-pointer group"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-violet-500/6 transition-colors duration-200 cursor-pointer"
         aria-label={expanded ? 'Collapse thinking' : 'Expand thinking'}
       >
         <NeuralPulse color={phase.color} active={!!isStreaming} />
@@ -147,16 +197,13 @@ export const ThinkingBlock = memo(function ThinkingBlock({ content, isStreaming,
               >
                 {phase.label}…
               </span>
-              {/* Phase pills */}
               <div className="hidden sm:flex items-center gap-2">
                 {PHASES.map(p => (
                   <span
                     key={p.id}
                     className={cn(
                       'text-[9px] px-1.5 py-0.5 rounded-full border transition-all duration-500',
-                      p.id === phase.id
-                        ? 'border-current opacity-100 font-medium'
-                        : 'border-transparent opacity-20',
+                      p.id === phase.id ? 'border-current opacity-100 font-medium' : 'border-transparent opacity-20',
                     )}
                     style={{ color: p.color, borderColor: p.id === phase.id ? p.color : undefined }}
                   >
@@ -173,10 +220,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({ content, isStreaming,
           )}
         </div>
 
-        <span className="text-[10px] text-violet-500/32 mr-1 tabular-nums shrink-0">
-          {wc.toLocaleString()}w
-        </span>
-
+        <span className="text-[10px] text-violet-500/32 mr-1 tabular-nums shrink-0">{wc.toLocaleString()}w</span>
         <motion.div animate={{ rotate: expanded ? 0 : -90 }} transition={{ duration: 0.2 }}>
           <ChevronUp className="w-3.5 h-3.5 text-violet-500/32 shrink-0" />
         </motion.div>
@@ -188,11 +232,8 @@ export const ThinkingBlock = memo(function ThinkingBlock({ content, isStreaming,
             key="body"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
-            exit={  { height: 0, opacity: 0 }}
-            transition={{
-              height:  { duration: 0.3, ease: [0.4, 0, 0.2, 1] },
-              opacity: { duration: 0.2 },
-            }}
+            exit={{   height: 0, opacity: 0 }}
+            transition={{ height: { duration: 0.3, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2 } }}
             style={{ overflow: 'hidden' }}
           >
             {isStreaming && (
@@ -200,11 +241,11 @@ export const ThinkingBlock = memo(function ThinkingBlock({ content, isStreaming,
             )}
             <div
               ref={scrollRef}
-              className="px-4 pb-4 max-h-64 overflow-y-auto border-t border-violet-500/10 scroll-smooth"
+              className="px-4 pb-4 max-h-72 overflow-y-auto border-t border-violet-500/10 scroll-smooth"
               style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(139,92,246,0.15) transparent' }}
             >
-              <p className="text-[11px] text-violet-300/52 whitespace-pre-wrap font-mono leading-relaxed pt-3 select-text">
-                <HighlightThought text={content} />
+              <p className="text-[11px] text-violet-300/55 whitespace-pre-wrap font-mono leading-relaxed pt-3 select-text">
+                <HighlightThought text={revealed} />
                 {isStreaming && (
                   <span className="inline-block w-[2px] h-[13px] bg-violet-400/70 ml-0.5 align-middle ds-cursor-blink rounded-sm" />
                 )}

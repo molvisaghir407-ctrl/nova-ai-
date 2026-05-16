@@ -64,6 +64,7 @@ export type StreamEvent =
   | { type: 'content'; content: string }
   | { type: 'usage'; usage: { prompt_tokens: number; completion_tokens: number; total_tokens?: number } }
   | { type: 'rag'; sources: Source[]; searchQuery: string }
+  | { type: 'source_progress'; url: string; title: string; domain: string; status: 'searching' | 'scanning' | 'reading' | 'done' | 'error' }
   | { type: 'agent_update'; agentId: string; status: 'running' | 'done' | 'error'; resultCount?: number }
   | { type: 'error'; message: string; code?: string }
   | { type: 'done'; sessionId: string; duration: number; messageCount: number; ragSources?: Source[]; ragUsed?: boolean };

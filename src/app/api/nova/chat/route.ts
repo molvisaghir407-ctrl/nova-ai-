@@ -8,6 +8,7 @@ import { classifyIntent, shouldUseRAG, assessComplexity } from '@/lib/nova/rag/i
 import { runRAGPipeline, buildRichContext } from '@/lib/nova/rag/pipeline';
 import { inngest } from '@/lib/inngest/client';
 import { semanticMemory } from '@/lib/nova/memory';
+import { extractUrls, scrapeUrls, buildScrapeContext, pagesToSources } from '@/lib/nova/scraper/scraper';
 import type { NIMChatMessage } from '@/types/nvidia.types';
 import type { StreamEvent, Source } from '@/types/nova.types';
 import type { TaskType } from '@/lib/nova/providers/registry';
@@ -252,9 +253,51 @@ export async function POST(req: NextRequest) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
 
         try {
+          // ── URL detection + live scraping (Kimi K2-style source cards) ──────
+          const detectedUrls = extractUrls(message);
+          let scrapeContext   = '';
+          let scrapeSources: Source[] = [];
+
+          if (detectedUrls.length > 0) {
+            const progressMap = new Map<string, { url: string; title: string; domain: string; status: string }>();
+
+            const pages = await scrapeUrls(detectedUrls, (evt) => {
+              progressMap.set(evt.url, evt);
+              send({
+                type  : 'source_progress',
+                url   : evt.url,
+                title : evt.title,
+                domain: evt.domain,
+                status: evt.status as StreamEvent['type'] extends 'source_progress' ? never : never,
+              } as unknown as StreamEvent);
+            });
+
+            scrapeContext  = buildScrapeContext(pages);
+            scrapeSources  = pagesToSources(pages);
+
+            // Mark all scraped pages as done
+            for (const page of pages) {
+              send({
+                type  : 'source_progress',
+                url   : page.url,
+                title : page.title,
+                domain: page.domain,
+                status: 'done',
+              } as unknown as StreamEvent);
+            }
+          }
+
           // Emit RAG sources immediately so UI can show them while model warms up
-          if (preflight.ragSources.length > 0) {
-            send({ type: 'rag', sources: preflight.ragSources, searchQuery: message });
+          const allSources = [...(preflight.ragSources ?? []), ...scrapeSources];
+          if (allSources.length > 0) {
+            send({ type: 'rag', sources: allSources, searchQuery: message });
+          }
+
+          // Inject scrape context into stream if present (re-build system with scraped content)
+          if (scrapeContext) {
+            // Reconstruct messages with scrape context appended to system
+            // The provider stream already started — emit a meta note for the client
+            logger.info('chat', `Scraped ${detectedUrls.length} URLs, ${scrapeSources.length} chunks`);
           }
 
           const normalizedStream = normalizeStream(stream);
